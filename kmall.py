@@ -306,10 +306,235 @@ class kmall():
     def read_EMdgmSCL_def(self,FID):
         """ Read data from an external sensor """
         dg = self.read_EMdgmHeader_def(FID)
+        return dg
+
+    def read_EMdgmMRZ_pinginfo(self, FID):
+        """ Read MRZ ping info datagram"""
         
+        dg = {}
+        format_to_unpack = "2Hf6BH11f2h2BHI3f2Hf2H6f4B2df"
+        fields = struct.unpack(format_to_unpack,
+                               FID.read(struct.Struct(format_to_unpack).size))
+
+        dg["numBytesInfoData"]           = fields[0]
+        dg["padding0"]                   = fields[1]
+        dg["pingRate_Hz"]                = fields[2]
+        dg["beamSpacing"]                = fields[3]
+        dg["depthMode"]                  = fields[4]
+        dg["subDepthMode"]               = fields[5]
+        dg["distanceBtwSwath"]           = fields[6]
+        dg["detectionMode"]              = fields[7]
+        dg["pulseForm"]                  = fields[8]
+        dg["padding1"]                   = fields[9]
+        dg["frequencyMode_Hz"]           = fields[10]
+        dg["freqRangeLowLim_Hz"]         = fields[11]
+        dg["freqRangeHighLim_Hz"]        = fields[12]
+        dg["maxTotalTxPulseLength_sec"]  = fields[13]
+        dg["maxEffTxPulseLength_sec"]    = fields[14]
+        dg["maxEffTxBandWidth_Hz"]       = fields[15]
+        dg["absCoeff_dBPerkm"]           = fields[16]
+        dg["portSectorEdge_deg"]         = fields[17]
+        dg["starbSectorEdge_deg"]        = fields[18]
+        dg["portMeanCov_deg"]            = fields[19]
+        dg["stbdMeanCov_deg"]            = fields[20]
+        dg["portMeanCov_m"]              = fields[21]
+        dg["starbMeanCov_m"]             = fields[22]
+        dg["modeAndStabilisation"]       = fields[23]
+        dg["runtimeFilter1"]             = fields[24]
+        dg["runtimeFilter2"]             = fields[25]
+        dg["pipeTrackingStatus"]         = fields[26]
+        dg["transmitArraySizeUsed_deg"]  = fields[27]
+        dg["receiveArraySizeUsed_deg"]   = fields[28]
+        dg["transmitPower_dB"]           = fields[29]
+        dg["SLrampUpTimeRemaining"]      = fields[30]
+        dg["padding2"]                   = fields[31]
+        dg["yawAngle_deg"]               = fields[32]
+        # Tx Sector block
+        dg["numTxSectors"]               = fields[33]
+        dg["numBytesPerTxSector"]        = fields[34]
+        # Info at time of midpoint of first tx pulse
+        dg["headingVessel_deg"]          = fields[35]
+        dg["soundSpeedAtTxDepth_mPerSec"] = fields[36]
+        dg["txTransducerDepth_m"]        = fields[37]
+        dg["z_waterLevelReRefPoint_m"]   = fields[38]
+        dg["x_kmallToall_m"]             = fields[39]
+        dg["y_kmallToall_m"]             = fields[40]
+        dg["latLongInfo"]                = fields[41]
+        dg["posSensorStatus"]            = fields[42]
+        dg["attitudeSensorStatus"]       = fields[43]
+        dg["padding3"]                   = fields[44]
+        dg["latitude_deg"]               = fields[45]
+        dg["longitude_deg"]               = fields[46]
+        dg["ellipsoidHeightReRefPoint_m"] = fields[47]
+       
+        FID.seek(dg["numBytesInfoData"] - struct.Struct(format_to_unpack).size,1)
         
         return dg
     
+    def read_EMdgmMRZ_txSectorInfo(self,FID):
+        """ Read MRZz Tx Sector Info. """
+
+        dg = {}
+        format_to_unpack = "4B7f2BH"
+        fields = struct.unpack(format_to_unpack,
+                               FID.read(struct.Struct(format_to_unpack).size))
+        
+        dg["txSectorNumb"]          = fields[0]
+        dg["txArrNumber"]           = fields[1]
+        dg["txSubArray"]            = fields[2]
+        dg["padding0"]              = fields[3]
+        dg["sectorTransmitDelay_sec"] = fields[4]
+        dg["tiltAngleReTx_deg"]     = fields[5]
+        dg["txNominalSourceLevel_dB"] = fields[6]
+        dg["txFocusRange_m"]        = fields[7]
+        dg["centreFreq_Hz"]         = fields[8]
+        dg["signalBandWidth_Hz"]    = fields[9]
+        dg["totalSignalLength_sec"] = fields[10]
+        dg["pulseShading"]          = fields[11]
+        dg["signalWaveForm"]        = fields[12]
+        dg["padding1"]              = fields[13] 
+        
+        # There's no fields for the number of bytes in this record. Odd. 
+        # FID.seek(dg["numBytesInfoData"] - struct.Struct(format_to_unpack).size,1)
+        return dg
+    
+    def read_EMdgmMRZ_rxInfo(self,FID):
+        """ A method to read the MRZ Rx Info record."""
+        
+        dg = {}
+        format_to_unpack = "4H4f4H"
+        fields = struct.unpack(format_to_unpack,
+                               FID.read(struct.Struct(format_to_unpack).size))
+        
+        dg["numBytesRxInfo"]        = fields[0]
+        dg["numSoundingsMaxMain"]   = fields[1]
+        dg["numSoundingsValidMain"] = fields[2]
+        dg["numBytesPerSounding"]   = fields[3]
+        dg["WCSapleRate"]           = fields[4]
+        dg["seabedImageSampleRate"] = fields[5]
+        dg["BSnormal_dB"]           = fields[6]
+        dg["BSoblique_dB"]          = fields[7]
+        dg["extraDetectionAlarmFlag"] = fields[8]
+        dg["numExtraDetections"]    = fields[9]
+        dg["numExtraDetectionClasses"] = fields[10]
+        dg["numBytesPerClass"]      = fields[11]
+        
+        FID.seek(dg["numBytesRxInfo"] - struct.Struct(format_to_unpack).size,1)
+        
+        return dg
+    
+    def read_EMdgmMRZ_extraDetClassInfo(self,FID):
+        
+        dg = {}
+        format_to_unpack = "HbB"
+        fields = struct.unpack(format_to_unpack,
+                               FID.read(struct.Struct(format_to_unpack).size))
+        dg["numExtraDetinClass"] = fields[0]
+        dg["padding"]            = fields[1]
+        dg["alarmFlag"]          = fields[2]
+        
+        return dg
+    
+    def read_EMdgmMRZ_sounding(self,FID):
+        
+        dg = {}
+        format_to_unpack = "H8BH6f2H18f4H"
+        fields = struct.unpack(format_to_unpack,
+                               FID.read(struct.Struct(format_to_unpack).size))
+        
+        dg["soundingIndex"]        = fields[0]
+        dg["txSectorNumb"]         = fields[1]
+        dg["detectionType"]        = fields[2]
+        dg["detectionMethod"]      = fields[3]
+        dg["rejectionInfo1"]       = fields[4]
+        dg["rejectionInfo2"]       = fields[5]
+        dg["postProcessingInfo"]   = fields[6]
+        dg["detectionClass"]       = fields[7]
+        dg["detectionConfidenceLevel"]   = fields[8]
+        dg["padding"]              = fields[9]
+        dg["rangeFactor"]          = fields[10]
+        dg["qualityFactor"]        = fields[11]
+        dg["detectionUncertaintyVer_m"] = fields[12]
+        dg["detectionUncertaintyHor_m"] = fields[13]
+        dg["detectionWindowLength_m"]   = fields[14]
+        dg["echo_Length_sec"]           = fields[15]
+        dg["WCBeamNumb"]                = fields[16]
+        dg["WCrange_samples"]           = fields[17]
+        dg["WCNomBeamAngleAcross_deg"]  = fields[18]
+        
+        dg["meanAbsCoeff_dbPerkm"]      = fields[19]
+        dg["reflectivity1_dB"]          = fields[20]
+        dg["reflectivity2_dB"]          = fields[21]
+        dg["receiverSensitivityApplied_dB"] = fields[22]
+        dg["sourceLevelApplied_dB"]     = fields[23]
+        dg["BScalibration_dB"]          = fields[24]
+        dg["TVG_dB"]                    = fields[25]
+        
+        dg["beamAngleReRx_deg"]        = fields[26]
+        dg["beamAngleCorrection_deg"]  = fields[27]
+        dg["twoWayTravelTime_sec"]     = fields[28]
+        dg["twoWayTravelTimeCorrection_sec"]  = fields[29]
+        dg["deltaLatitude_deg"]        = fields[30]
+        dg["deltaLongitude_deg"]       = fields[31]
+        dg["z_reRefPoint_m"]           = fields[32]
+        dg["y_reRefPoint_m"]           = fields[33]
+        dg["x_reRefPoint_m"]           = fields[34]
+        dg["beamIncAngleAdj_deg"]      = fields[35]
+        dg["realTimeCleanInfo"]        = fields[36]
+        
+        dg["SlstartRange_samples"]     = fields[37]
+        dg["SlcenterSample"]           = fields[38]
+        dg["SlnumSamples"]             = fields[39]
+        
+        
+        return dg
+        
+
+    def read_EMdgmMRZ(self,FID):
+        ''' A method to read a full MRZ datagram.'''
+        
+        start = FID.tell()
+        
+        dg = {}
+        dg["header"] = self.read_EMdgmHeader_def(FID)
+        dg["Mpart"]  = self.read_EMdgmMpartition_def(FID)
+        dg["Mbody"]  = self.read_EMdgmMbody_def(FID)
+        dg["pinginfo"] = self.read_EMdgmMRZ_pinginfo(FID)
+
+        # Read TX sector info for each sector
+        txSectorinfo = []
+        for sector in range(dg["pinginfo"]["numTxSectors"]):
+            txSectorinfo.append(self.read_EMdgmMRZ_txSectorInfo(FID))
+        dg["txSectorinfo"] = self.listofdicts2dictoflists(txSectorinfo)
+    
+       # Read Rxinfo    
+        dg["rxinfo"] = self.read_EMdgmMRZ_rxInfo(FID)
+
+        # Read extra detect metadata if they exist.
+        extraDetClassInfo = []
+        for detclass in range(dg["rxinfo"]["numExtraDetectionClasses"]):
+            extraDetClassInfo.append(self.read_EMdgmMRZ_extraDetClassInfo(FID))
+        dg["extraDetClassInfo"] = self.listofdicts2dictoflists(extraDetClassInfo)
+        
+        # Read the sounding data. 
+        soundings = []
+        Nseabedimage_samples = 0
+        for sounding in range(dg["rxinfo"]["numExtraDetections"] + 
+                              dg["rxinfo"]["numSoundingsMaxMain"]):
+            soundings.append(self.read_EMdgmMRZ_sounding(FID))
+            Nseabedimage_samples += soundings[sounding]["SlnumSamples"]
+        dg["soundings"] = self.listofdicts2dictoflists(soundings)
+
+        # Read the seabed imagery. 
+        format_to_unpack = str(Nseabedimage_samples) + "H"
+        dg["Slsample_desidB"] = struct.unpack(format_to_unpack,
+                                              FID.read(struct.Struct(format_to_unpack).size))
+        
+        # Seek to end of the packet. 
+        FID.seek(start + dg["header"]["numBytesDgm"],0)
+        
+        return dg
+ 
     def index_file(self):
         """ Index a KMALL file - message type, time, size, byte offset. """
         if self.Index is None:
@@ -437,6 +662,9 @@ class kmall():
         # There is some mechanism to handle this in a single list 
         # comprehension statement, checking for types on the fly, but I cannot
         # find any syntax that returns the proper result. 
+        if len(listofdicts) == 0:
+            return None
+        
         for k,v in listofdicts[0].items():  
             dg[k] = [item for dictitem in listofdicts if isinstance(dictitem[k],list) for item in dictitem[k]]        
             scalartmp = [dictitem[k] for dictitem in listofdicts if not isinstance(dictitem[k],list)]
