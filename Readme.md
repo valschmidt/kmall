@@ -1,12 +1,12 @@
 ﻿# Kongsberg "KMALL" file reader
 
-Modern Kongsberg bathymetric sonar systems which acquire data in "Seafloor Inforation System Version 5" produce data files in the ".kmall" data format. This module (class) and utility reads these data formats and provides several tools for reporting information about the data within the file.
+Modern Kongsberg bathymetric sonar systems, which acquire data using "Seafloor Inforation System - Version 5" produce data files in the ".kmall" data format. This module (class) and utility reads these data formats and provides several tools for reporting information about the data within the file.
 
 Although low-level readers for many of the datagram types is in place, little other infrastucture exists. This reader remains a work in progress. 
 
     ./kmall.py -h
     usage: kmall.py [-h] [-f KMALL_FILENAME] [-d KMALL_DIRECTORY] [-V] [-v]
-    A python script (and class) for parsing the Kongsberg KMALL data files.
+    A python script (and class) for parsing Kongsberg KMALL data files.
     
     optional arguments:
     -h, --help  show this help message and exit
@@ -15,7 +15,8 @@ Although low-level readers for many of the datagram types is in place, little ot
     -V  Perform series of checks to verify the kmall file.
     -v  Increasingly verbose output (e.g. -v -vv -vvv),for debugging use -vvv
 
- 
+
+See [the examples](KMALL_examples.rst) for details about using the module.
 
 
 > Written with [StackEdit](https://stackedit.io/).

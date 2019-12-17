@@ -14,32 +14,25 @@ import argparse
 import os
 from pyproj import Proj
 
-class FileIndex():
-    def __init__(self):
-        self.verbose = 0
-        self.Time = None
-        self.ByteOffset = None
-        self.MessageSize = None
-        self.MessageType = None
-        
-        
+                
 class kmall():
     """ A class for reading a Kongsberg KMALL data file. """
     
     def __init__(self,filename=None):
         self.verbose = 0        
         self.filename = filename
+        self.FID = None
         self.file_size = None
         self.Index = pd.DataFrame({'Time':[np.nan],
                                    'ByteOffset':[np.nan],
                                    'MessageSize':[np.nan],
                                    'MessageType':['test']})
-        self.Index = None
-        self.Index2 = FileIndex()
+
         
         self.pingDataCheck = None
         self.navDataCheck = None
     
+
     def read_datagram():
         '''
         /*********************************************
@@ -78,18 +71,12 @@ class kmall():
         pass
         
     
-
-        
-    def print_datagram(self,dg):
-        """ A utility function to print the fields of a parsed datagram. """
-        print("\n")
-        for k,v in dg.items():
-            print("%s:\t\t\t%s" % (k,str(v)))
-    
-    def read_EMdgmHeader_def(self,FID):
+    def read_EMdgmHeader(self):
         ''' Read datagram header'''
-        fields = struct.unpack("I4sBBHII",FID.read(20))
         dg = {}
+        format_to_unpack = "I4sBBHII"
+        fields = struct.unpack("I4sBBHII",self.FID.read(struct.Struct(format_to_unpack).size))
+        
         dg['numBytesDgm'] = fields[0]
         dg['dgmType']     = fields[1]
         dg['dgmVersion']  = fields[2]
@@ -103,9 +90,30 @@ class kmall():
        
         return dg
     
-    def read_EMdgmMpartition_def(self,FID):
+    def read_EMdgmIIP(self):
+        """ Read installation parameters datagram (IIP)"""
         dg = {}
-        fields = struct.unpack("2H",FID.read(4))
+        header = self.read_EMdgmHeader(self)
+        for k,v in header:
+            dg[k] = v
+            
+        format_to_unpack = "3H1B"
+        fields = struct.unpack(format_to_unpack,
+                               self.FID.read(struct.Struct(format_to_unpack).size))
+        dg["numBytesCmnPart"] = fields[0]
+        dg["info"]            = fields[1]
+        dg["status"]          = fields[2]
+        dg["install_txt"]     = fields[3]
+        
+        
+
+        
+        return dg
+    
+    def read_EMdgmMpartition(self):
+        dg = {}
+        format_to_unpack = "2H"
+        fields = struct.unpack(format_to_unpack,self.FID.read(struct.Struct(format_to_unpack).size))
         dg['numOfDgms']     = fields[0]
         dg['dgmNum']        = fields[1]
         
@@ -114,9 +122,10 @@ class kmall():
             
         return dg
     
-    def read_EMdgmMbody_def(self,FID):
+    def read_EMdgmMbody(self):
         dg = {}
-        fields = struct.unpack("2H8B",FID.read(12))
+        format_to_unpack = "2H8B"
+        fields = struct.unpack("2H8B",self.FID.read(struct.Struct(format_to_unpack).size))
 
         dg['numBytesCmnPart'] = fields[0]
         dg['pingCnt']         = fields[1]
@@ -129,22 +138,23 @@ class kmall():
         dg['numRxTransducers'] = fields[8]
         dg['algorithmType']   = fields[9]  
         
-        FID.seek(dg['numBytesCmnPart'] - 12,1) # Skips unknown fields.
+        self.FID.seek(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size,1) # Skips unknown fields.
 
         if self.verbose > 2:
             self.print_datagram(dg)
         
         return dg
     
-    def read_EMdgmIOP_def(self,FID):
+    def read_EMdgmIOP(self):
         """ Read Runtime Parameters IOP datagram """ 
         
-        dg = self.read_EMdgmHeader_def(FID)
-        fields = struct.unpack("3H",FID.read(6))
+        dg = self.read_EMdgmHeader(self.FID)
+        format_to_unpack = "3H"
+        fields = struct.unpack("3H",self.FID.read(struct.Struct(format_to_unpack).size))
         dg['numBytesCmnPart'] = fields[0]
         dg['info']            = fields[1]
         dg['status']          = fields[2]
-        tmp = FID.read(dg['numBytesCmnPart'] - 6)
+        tmp = FID.read(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size)
         rt_text = tmp.decode('UTF-8')
         print(rt_text)
         dg['RT'] = rt_text
@@ -153,48 +163,50 @@ class kmall():
     
     
     
-    def read_EMdgmScommon_def(FID):
+    def read_EMdgmScommon(self):
         """ Read the common portion of the 'sensor' datagram. """   
         dg = {}
-        fields = struct.unpack("3H",FID.read(6),1)
+        format_to_unpack = "3H"
+        fields = struct.unpack("3H",self.FID.read(struct.Struct(format_to_unpack).size),1)
         dg["numBytesCmnPart"]    = fields[0]
         dg["sensorSystem"]       = fields[1]
         dg["sensorStatus"]       = fields[2]
-        FID.seek(dg["numBytesCmnPart"] - 6,1)
+        self.FID.seek(dg["numBytesCmnPart"] - struct.Struct(format_to_unpack).size,1)
         
         return dg
     
-    def read_EMdgmSKM_def(self,FID):
+    def read_EMdgmSKM(self):
         """ Read attitude datagrams in raw format """
-        dgH = self.read_EMdgmHeader_def(FID)
-        dgInfo = self.read_EMdgmSKMinfo_def(FID)
-        dgSamples = self.read_EMdgmSKMsample_def(dgInfo,FID)
+        dgH = self.read_EMdgmHeader(self.FID)
+        dgInfo = self.read_EMdgmSKMinfo(self.FID)
+        dgSamples = self.read_EMdgmSKMsample(dgInfo)
         
         dg = {**dgH,**dgInfo,**dgSamples}
         return dg
     
-    def read_EMdgmSKMsample_def(self,dgInfo, FID):
+    def read_EMdgmSKMsample(self,dgInfo):
         """ Read attitude and position data sammples """
         
         data = list()
         for idx in range(dgInfo['numSamplesArray']):
             if dgInfo['sensorDataContents'] == 32:
-                data.append(self.read_KMdelayedHeave_def(dgInfo['numBytesPerSample'],FID))
+                data.append(self.read_KMdelayedHeave(dgInfo['numBytesPerSample']))
             else:
                 # numBytesPerSample is contained in the attitude datagrams 
                 # and does not need to be passed here, unlike delayed heave
                 # which does not. 
-                data.append(self.read_KMbinary_def(FID))
+                data.append(self.read_KMbinary())
                 
         # Convert list of dictionaries to disctionary of lists.
         dg = self.listofdicts2dictoflists(data)
                         
         return dg
     
-    def read_EMdgmSKMinfo_def(self,FID):
+    def read_EMdgmSKMinfo(self):
         """ Read attitude metadata datagram. """
         dg = {}
-        fields = struct.unpack("H2B4H",FID.read(12))
+        format_to_unpack = "H2B4H"
+        fields = struct.unpack("H2B4H",self.FID.read(struct.Struct(format_to_unpack).size))
         dg['numBytesInfoPart']    = fields[0]
         dg['sensorSystem']        = fields[1]
         dg['sensorStatus']        = fields[2]
@@ -236,33 +248,34 @@ class kmall():
             5        Error fields
             6        Delayed Heave
         '''
-        FID.seek(dg['numBytesInfoPart']-12,1)
+        self.FID.seek(dg['numBytesInfoPart']-struct.Struct(format_to_unpack).size,1)
         
         if self.verbose > 2:
             self.print_datagram(dg)
             
         return dg
     
-    def read_KMdelayedHeave_def(self,bytesPerSample,FID):
+    def read_KMdelayedHeave(self,bytesPerSample):
         """ Read the delayed heave samples datagram. """
         dg = {}
-        fields = struct.unpack("2If",FID.read(8))
+        format_to_unpack = "2If"
+        fields = struct.unpack("format_to_unpack",self.FID.read(struct.Struct(format_to_unpack).size))
         dg["time_sec"] = fields[0]
         dg["time_nanosec"] = fields[1]
         dg["delayedHeave_m"] = fields[2]
         
-        FID.seek(bytesPerSample - 8,1)
+        self.FID.seek(bytesPerSample - struct.Struct(format_to_unpack).size,1)
 
         if self.verbose > 2:
             self.print_datagram(dg)
             
         return dg
     
-    def read_KMbinary_def(self,FID):
+    def read_KMbinary(self):
         """ Read the attitude sample datagram. """
         dg = {}
-        #fields = struct.unpack("4B2H3I2d21f",FID.read(120))
-        fields = struct.unpack("4B2H3I",FID.read(20))
+        format_to_unpack = "4B2H3I"
+        fields = struct.unpack(format_to_unpack,self.FID.read(struct.Struct(format_to_unpack).size))
         dg["dgmType"] = fields[0] + fields[1] + fields[2] + fields[3]
         dg["numBytesDgm"]    = fields[4]
         dg["dgmVersion"]     = fields[5]
@@ -296,25 +309,25 @@ class kmall():
         dg["eastAcceleration"] = fields[19]
         dg["downAcceleration"] = fields[20]
         
-        FID.seek(dg['numBytesDgm'] - 120,1)
+        self.FID.seek(dg['numBytesDgm'] - struct.Struct(format_to_unpack).size,1)
 
         if self.verbose > 2:
             self.print_datagram(dg)
         return dg
     
     
-    def read_EMdgmSCL_def(self,FID):
+    def read_EMdgmSCL(self):
         """ Read data from an external sensor """
-        dg = self.read_EMdgmHeader_def(FID)
+        dg = self.read_EMdgmHeader()
         return dg
 
-    def read_EMdgmMRZ_pinginfo(self, FID):
+    def read_EMdgmMRZ_pinginfo(self):
         """ Read MRZ ping info datagram"""
         
         dg = {}
         format_to_unpack = "2Hf6BH11f2h2BHI3f2Hf2H6f4B2df"
         fields = struct.unpack(format_to_unpack,
-                               FID.read(struct.Struct(format_to_unpack).size))
+                               self.FID.read(struct.Struct(format_to_unpack).size))
 
         dg["numBytesInfoData"]           = fields[0]
         dg["padding0"]                   = fields[1]
@@ -367,17 +380,20 @@ class kmall():
         dg["longitude_deg"]               = fields[46]
         dg["ellipsoidHeightReRefPoint_m"] = fields[47]
        
-        FID.seek(dg["numBytesInfoData"] - struct.Struct(format_to_unpack).size,1)
-        
+        self.FID.seek(dg["numBytesInfoData"] - struct.Struct(format_to_unpack).size,1)
+ 
+        if self.verbose > 2:
+            self.print_datagram(dg)
+            
         return dg
     
-    def read_EMdgmMRZ_txSectorInfo(self,FID):
+    def read_EMdgmMRZ_txSectorInfo(self):
         """ Read MRZz Tx Sector Info. """
 
         dg = {}
         format_to_unpack = "4B7f2BH"
         fields = struct.unpack(format_to_unpack,
-                               FID.read(struct.Struct(format_to_unpack).size))
+                               self.FID.read(struct.Struct(format_to_unpack).size))
         
         dg["txSectorNumb"]          = fields[0]
         dg["txArrNumber"]           = fields[1]
@@ -396,15 +412,17 @@ class kmall():
         
         # There's no fields for the number of bytes in this record. Odd. 
         # FID.seek(dg["numBytesInfoData"] - struct.Struct(format_to_unpack).size,1)
+        if self.verbose > 2:
+            self.print_datagram(dg)
         return dg
     
-    def read_EMdgmMRZ_rxInfo(self,FID):
+    def read_EMdgmMRZ_rxInfo(self):
         """ A method to read the MRZ Rx Info record."""
         
         dg = {}
         format_to_unpack = "4H4f4H"
         fields = struct.unpack(format_to_unpack,
-                               FID.read(struct.Struct(format_to_unpack).size))
+                               self.FID.read(struct.Struct(format_to_unpack).size))
         
         dg["numBytesRxInfo"]        = fields[0]
         dg["numSoundingsMaxMain"]   = fields[1]
@@ -419,28 +437,32 @@ class kmall():
         dg["numExtraDetectionClasses"] = fields[10]
         dg["numBytesPerClass"]      = fields[11]
         
-        FID.seek(dg["numBytesRxInfo"] - struct.Struct(format_to_unpack).size,1)
+        self.FID.seek(dg["numBytesRxInfo"] - struct.Struct(format_to_unpack).size,1)
         
+        if self.verbose > 2:
+            self.print_datagram(dg)
         return dg
     
-    def read_EMdgmMRZ_extraDetClassInfo(self,FID):
+    def read_EMdgmMRZ_extraDetClassInfo(self):
         
         dg = {}
         format_to_unpack = "HbB"
         fields = struct.unpack(format_to_unpack,
-                               FID.read(struct.Struct(format_to_unpack).size))
+                               self.FID.read(struct.Struct(format_to_unpack).size))
         dg["numExtraDetinClass"] = fields[0]
         dg["padding"]            = fields[1]
         dg["alarmFlag"]          = fields[2]
         
+        if self.verbose > 2:
+            self.print_datagram(dg)
         return dg
     
-    def read_EMdgmMRZ_sounding(self,FID):
+    def read_EMdgmMRZ_sounding(self):
         
         dg = {}
         format_to_unpack = "H8BH6f2H18f4H"
         fields = struct.unpack(format_to_unpack,
-                               FID.read(struct.Struct(format_to_unpack).size))
+                               self.FID.read(struct.Struct(format_to_unpack).size))
         
         dg["soundingIndex"]        = fields[0]
         dg["txSectorNumb"]         = fields[1]
@@ -486,34 +508,36 @@ class kmall():
         dg["SlcenterSample"]           = fields[38]
         dg["SlnumSamples"]             = fields[39]
         
-        
+        if self.verbose > 2:
+            self.print_datagram(dg)
+            
         return dg
         
 
-    def read_EMdgmMRZ(self,FID):
+    def read_EMdgmMRZ(self):
         ''' A method to read a full MRZ datagram.'''
         
-        start = FID.tell()
+        start = self.FID.tell()
         
         dg = {}
-        dg["header"] = self.read_EMdgmHeader_def(FID)
-        dg["Mpart"]  = self.read_EMdgmMpartition_def(FID)
-        dg["Mbody"]  = self.read_EMdgmMbody_def(FID)
-        dg["pinginfo"] = self.read_EMdgmMRZ_pinginfo(FID)
+        dg["header"] = self.read_EMdgmHeader()
+        dg["Mpart"]  = self.read_EMdgmMpartition()
+        dg["Mbody"]  = self.read_EMdgmMbody()
+        dg["pinginfo"] = self.read_EMdgmMRZ_pinginfo()
 
         # Read TX sector info for each sector
         txSectorinfo = []
         for sector in range(dg["pinginfo"]["numTxSectors"]):
-            txSectorinfo.append(self.read_EMdgmMRZ_txSectorInfo(FID))
+            txSectorinfo.append(self.read_EMdgmMRZ_txSectorInfo())
         dg["txSectorinfo"] = self.listofdicts2dictoflists(txSectorinfo)
     
        # Read Rxinfo    
-        dg["rxinfo"] = self.read_EMdgmMRZ_rxInfo(FID)
+        dg["rxinfo"] = self.read_EMdgmMRZ_rxInfo()
 
         # Read extra detect metadata if they exist.
         extraDetClassInfo = []
         for detclass in range(dg["rxinfo"]["numExtraDetectionClasses"]):
-            extraDetClassInfo.append(self.read_EMdgmMRZ_extraDetClassInfo(FID))
+            extraDetClassInfo.append(self.read_EMdgmMRZ_extraDetClassInfo())
         dg["extraDetClassInfo"] = self.listofdicts2dictoflists(extraDetClassInfo)
         
         # Read the sounding data. 
@@ -521,33 +545,61 @@ class kmall():
         Nseabedimage_samples = 0
         for sounding in range(dg["rxinfo"]["numExtraDetections"] + 
                               dg["rxinfo"]["numSoundingsMaxMain"]):
-            soundings.append(self.read_EMdgmMRZ_sounding(FID))
+            soundings.append(self.read_EMdgmMRZ_sounding())
             Nseabedimage_samples += soundings[sounding]["SlnumSamples"]
         dg["soundings"] = self.listofdicts2dictoflists(soundings)
 
         # Read the seabed imagery. 
         format_to_unpack = str(Nseabedimage_samples) + "H"
         dg["Slsample_desidB"] = struct.unpack(format_to_unpack,
-                                              FID.read(struct.Struct(format_to_unpack).size))
+                                              self.FID.read(struct.Struct(format_to_unpack).size))
         
         # Seek to end of the packet. 
-        FID.seek(start + dg["header"]["numBytesDgm"],0)
+        self.FID.seek(start + dg["header"]["numBytesDgm"],0)
         
         return dg
  
+    ###########################################################
+    # Utilities
+    ###########################################################
+
+    def OpenFiletoRead(self,inputfilename=None):
+        """ Open a KMALL data file for reading."""
+        if self.filename is None:
+            if inputfilename is None:
+                print("No file name specified")
+                sys.exit(1)
+            else:
+                filetoopen = inputfilename
+        else:
+            filetoopen = self.filename
+
+        if self.verbose >= 1:
+            print("Opening: %s" % filetoopen)
+            
+        self.FID = open(filetoopen,"rb")
+
+    def closeFile(self):
+        """ Close a file."""
+        if self.FID is not None:
+            self.FID.close()
+
+    def print_datagram(self,dg):
+        """ A utility function to print the fields of a parsed datagram. """
+        print("\n")
+        for k,v in dg.items():
+            print("%s:\t\t\t%s" % (k,str(v)))
+    
     def index_file(self):
         """ Index a KMALL file - message type, time, size, byte offset. """
-        if self.Index is None:
-            try:
-                FID = open(self.filename, 'rb')
-            except:
-                print("Failed to open: %s" % self.filename)
-                sys.exit(0)    
-
+        
+        if self.FID is None:
+            self.OpenFiletoRead()
+        
         # Get size of the file.
-        FID.seek(0, 2)
-        self.file_size = FID.tell()
-        FID.seek(0,0)
+        self.FID.seek(0, 2)
+        self.file_size = self.FID.tell()
+        self.FID.seek(0,0)
         
         if (self.verbose == 1):	
             print("Filesize: %d" % self.file_size)
@@ -557,18 +609,18 @@ class kmall():
         self.msgtime = []
         self.msgtype = []
         self.pktcnt = 0
-        while FID.tell() < self.file_size:
+        while self.FID.tell() < self.file_size:
             
             try:
                 # Get the byte offset.
-                self.msgoffset.append(FID.tell())
+                self.msgoffset.append(self.FID.tell())
             
                 # Read the first four bytes to get the datagram size.
-                msgsize = struct.unpack("I",FID.read(4))
+                msgsize = struct.unpack("I",self.FID.read(4))
                 self.msgsize.append(msgsize[0])
             
                 # Read the datagram.
-                msg_buffer = FID.read(int(self.msgsize[self.pktcnt])-4)
+                msg_buffer = self.FID.read(int(self.msgsize[self.pktcnt])-4)
             except:
                 print("Error indexing file: %s" % self.filename)
                 self.msgoffset = self.msgoffset[:-1]
@@ -628,19 +680,16 @@ class kmall():
         if self.Index is None:
             self.index_file()
             
-        try:
-            FID = open(self.filename, 'rb')
-        except:
-            print("Failed to open: %s" % self.filename)
-            sys.exit(0)  
+        if self.FID is None:
+            self.OpenFiletoRead()
         
         # Get offsets for 'SKM' attitude datagrams. 
         SKMOffsets = [x for x,y in zip(self.msgoffset,self.msgtype) if y == "b'#SKM'"]
         
         dg = list()
         for offset in SKMOffsets:
-            FID.seek(offset,0)
-            dg.append(self.read_EMdgmSKM_def(FID))
+            self.FID.seek(offset,0)
+            dg.append(self.read_EMdgmSKM())
             
         # Convert list of dictionaries to disctionary of lists.
         self.att = self.listofdicts2dictoflists(dg)
@@ -648,7 +697,7 @@ class kmall():
         #    self.att[k] = [x for sublist in dg for x in sublist[k]]
    
      
-        FID.seek(0,0)
+        self.FID.seek(0,0)
         return 
 
     def listofdicts2dictoflists(self,listofdicts):
@@ -682,12 +731,8 @@ class kmall():
         if self.Index is None:
             self.index_file()
             
-        try:
-            FID = open(self.filename, 'rb')
-        except:
-            print("Failed to open: %s" % self.filename)
-            sys.exit(0)    
-
+        if self.FID is None:
+            self.OpenFiletoRead()
         
         #M = map( lambda x: x=="b'#MRZ'", self.msgtype)
         #MRZOffsets = self.msgoffset[list(M)]
@@ -709,15 +754,14 @@ class kmall():
         #           The ping counter will not change for the second MRZ packet.
 
         for offset in MRZOffsets:
-            FID.seek(offset,0)
-            dg = self.read_EMdgmHeader_def(FID)
-            dg = self.read_EMdgmMpartition_def(FID)
-            dg = self.read_EMdgmMbody_def(FID)
+            self.FID.seek(offset,0)
+            dg = self.read_EMdgmHeader()
+            dg = self.read_EMdgmMpartition()
+            dg = self.read_EMdgmMbody()
             self.pingcnt.append(dg['pingCnt'])
             self.rxFans.append(dg['rxFansPerPing'])
             self.rxFanIndex.append(dg['rxFanIndex'])
         
-        FID.close()
         self.pingcnt = np.array(self.pingcnt)
         self.rxFans = np.array(self.rxFans)
         self.rxFanIndex = np.array(self.rxFanIndex)
@@ -784,25 +828,27 @@ class kmall():
                 HaveAllMRZ = False
                 MissingMRZCount = MissingMRZCount+1
         
-        if verbose == 1:
-            print("File\tPingsMissed\tNpings\tMissingMRZ")
-            print("%s\t%d\t%d\t%d" %
-                  (self.filename,
-                   NpingsMissed, 
-                   NpingsMissed+NpingsSeen,
-                   MissingMRZCount))
-
+        
+        # Shamelessly creating a data frame just to get a pretty table.
+        res = pd.DataFrame([["File","NpingsTotal","Pings Missed","MissingMRZRecords"],
+                            [ self.filename,NpingsMissed+NpingsSeen,NpingsMissed,MissingMRZCount]])
+        print(res.to_string(index=False, header=False))
+        
                 
         if HaveAllMRZ:
             if self.verbose > 1:
                 print("\tNumber of MRZ records equals number required for each ping.")
             
                         
-        return (self.filename,NpingsMissed,NpingsMissed+NpingsSeen,MissingMRZCount)
+        return (self.filename,NpingsMissed+NpingsSeen,NpingsMissed,MissingMRZCount)
         
     
     def report_packet_types(self):
         """ A method to report datagram packet count and size in a file. """
+        
+        if self.Index is None:
+            self.index_file()
+            
         # Get a list of packet types seen. 
         types = list(set(self.msgtype))
 
@@ -835,7 +881,7 @@ if __name__ == '__main__':
     
     # Handle input arguments
     parser = argparse.ArgumentParser(description="A python script (and class)" 
-                                     "for parsing the Kongsberg KMALL data files.")
+                                     "for parsing Kongsberg KMALL data files.")
     parser.add_argument('-f',action='store',dest='kmall_filename',
                         help="The path and filename to parse.")
     parser.add_argument('-d', action='store',dest='kmall_directory',
