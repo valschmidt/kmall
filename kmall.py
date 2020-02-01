@@ -124,8 +124,10 @@ class kmall():
         # Installation settings as text format. Parameters separated by ; and lines separated by , delimiter.
         tmp = self.FID.read(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size)
         i_text = tmp.decode('UTF-8')
-        #print(i_text)
         dg['install_txt'] = i_text
+
+        # Skip unknown fields.
+        self.FID.seek(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size, 1)
 
         return dg
 
@@ -156,20 +158,24 @@ class kmall():
         #print(rt_text)
         dg['runtime_txt'] = rt_text
 
+        # Skip unknown fields.
+        self.FID.seek(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size, 1)
+
         return dg
 
     def read_EMdgmIB(self):
         """
-        Read #IB - results from online built-in test (BIST).
-        Kongsberg documentation: "Definition used for three different BIST datagrams, i.e. #IBE (BIST Error report),
-        #IBR (BIST reply) or #IBS (BIST short reply)."
+        Read #IB - results from online built-in test (BIST). Definition used for three different BIST datagrams,
+        i.e. #IBE (BIST Error report), #IBR (BIST reply) or #IBS (BIST short reply).
         :return: A dictionary containing EMdgmIB.
         """
         # LMD added, untested.
         # TODO: Test with file containing BIST.
-        sys.exit("WARNING: You are using an incomplete, untested function: read_EMdgmIB.")
+        print("WARNING: You are using an incomplete, untested function: read_EMdgmIB.")
 
-        dg = self.read_EMdgmHeader(self.FID)
+        dg = {}
+        dg['header'] = self.read_EMdgmHeader()
+
         format_to_unpack = "1H3B1b1B"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
@@ -189,6 +195,9 @@ class kmall():
         bist_text = tmp.decode('UTF-8')
         #print(bist_text)
         dg['BISTText'] = bist_text
+
+        # Skip unknown fields.
+        self.FID.seek(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size, 1)
 
         '''
         if self.verbose > 2:
@@ -551,7 +560,7 @@ class kmall():
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Number of extra detection in this class.
-        dg['numExtraDetinClass'] = fields[0]
+        dg['numExtraDetInClass'] = fields[0]
         # Byte alignment.
         dg['padding'] = fields[1]
         # 0 = no alarm; 1 = alarm.
@@ -686,7 +695,7 @@ class kmall():
         # Seabed image start range, in sample number from transducer. Valid only for the current beam.
         dg['SIstartRange_samples'] = fields[37]
         # Seabed image. Number of the centre seabed image sample for the current beam.
-        dg['SIcenterSample'] = fields[38]
+        dg['SIcentreSample'] = fields[38]
         # Seabed image. Number of range samples from the current beam, used to form the seabed image.
         dg['SInumSamples'] = fields[39]
 
@@ -782,6 +791,9 @@ class kmall():
         # Heave at vessel reference point, at time of ping, i.e. at midpoint of first tx pulse in rxfan.
         dg['heave_m'] = fields[4]
 
+        # Skip unknown fields.
+        self.FID.seek(dg['numBytesTxInfo'] - struct.Struct(format_to_unpack).size, 1)
+
         '''
         if self.verbose > 2:
             self.print_datagram(dg)
@@ -794,6 +806,7 @@ class kmall():
         Read #MWC - data block 1: transmit sector data, loop for all i = numTxSectors.
         :return: A dictionary containing EMdgmMWCtxSectorData
         """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
         # LMD added, tested.
 
         dg = {}
@@ -850,6 +863,8 @@ class kmall():
         # Sound speed at transducer, unit m/s.
         dg['soundVelocity_mPerSec'] = fields[7]
 
+        # Skip unknown fields.
+        self.FID.seek(dg['numBytesRxInfo'] - struct.Struct(format_to_unpack).size, 1)
         '''
         if self.verbose > 2:
             self.print_datagram(dg)
@@ -862,6 +877,7 @@ class kmall():
         Read #MWC - data block 2: receiver, specific info for each beam.
         :return: A dictionary containing EMdgmMWCrxBeamData.
         """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
         # LMD added,  partially tested.
         # TODO: Test with water column data, phaseFlag = 1 and phaseFlag = 2 to ensure this continues to function properly.
 
@@ -904,7 +920,7 @@ class kmall():
         """
         # LMD added, untested.
         # TODO: Test with water column data, phaseFlag = 1 to complete/test this function.
-        sys.exit("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase1.")
+        print("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase1.")
 
         dg = {}
         format_to_unpack = str(numBeams * numSampleData) + "b"
@@ -924,7 +940,7 @@ class kmall():
         """
         # LMD added, untested.
         # TODO: Test with water column data, phaseFlag = 2 to complete/test this function.
-        sys.exit("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase2.")
+        print("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase2.")
 
         dg = {}
         format_to_unpack = str(numBeams * numSampleData) + "h"
@@ -943,6 +959,8 @@ class kmall():
         # LMD added, partially tested.
         # NOTE: Tested with phaseFlag = 0.
         # TODO: Test with water column data, phaseFlag = 1 and phaseFlag = 2 to fully complete/test this function.
+
+        start = self.FID.tell()
 
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
@@ -979,12 +997,14 @@ class kmall():
 
             if dg['rxInfo']['phaseFlag'] == 0:
                 pass
-            # TODO: Test with water column data, phaseFlag = 1 to complete/test this function.
+
             elif dg['rxInfo']['phaseFlag'] == 1:
+                # TODO: Test with water column data, phaseFlag = 1 to complete/test this function.
                 rxPhaseInfo.append(self.read_EMdgmMWCrxBeamPhase1(dg['rxInfo']['numBeams'],
                                                                   rxBeamData[idx]['numSampleData']))
-            # TODO: Test with water column data, phaseFlag = 2 to complete/test this function.
+
             elif dg['rxInfo']['phaseFlag'] == 2:
+                # TODO: Test with water column data, phaseFlag = 2 to complete/test this function.
                 rxPhaseInfo.append(self.read_EMdgmMWCrxBeamPhase1(dg['rxInfo']['numBeams'],
                                                                   rxBeamData[idx]['numSampleData']))
 
@@ -996,6 +1016,9 @@ class kmall():
         # TODO: Should this be handled in a different way? By this method, number of fields in dg is variable.
         if dg['rxInfo']['phaseFlag'] == 1 or dg['rxInfo']['phaseFlag'] == 2:
             dg['phaseInfo'] = self.listofdicts2dictoflists(rxPhaseInfo)
+
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
 
         return dg
 
@@ -1014,34 +1037,48 @@ class kmall():
         # datagram in cases where only one datablock is attached.
         dg['numBytesCmnPart'] = fields[0]
         # Sensor system number, as indicated when setting up the system in K-Controller installation menu. E.g.
-        # position system 0 referes to system POSI_1 in installation datagram #IIP. Check if this sensor system is
-        # active by using #IIP datagram. #SCL - clock datagram: Bit: 0 = Time syncronisation from clock data;
-        # 1 = Time syncronisation from active position data; 2 = 1 PPS is used.
+        # position system 0 refers to system POSI_1 in installation datagram #IIP. Check if this sensor system is
+        # active by using #IIP datagram. #SCL - clock datagram:
+        '''
+                Bit:    Sensor system: 
+                0       Time syncronisation from clock data
+                1       Time syncronisation from active position data
+                2       1 PPS is used
+        '''
         dg['sensorSystem'] = fields[1]
         # Sensor status. To indicate quality of sensor data is valid or invalid. Quality may be invalid even if sensor
         # is active and the PU receives data. Bit code vary according to type of sensor.
         # Bits 0 -7 common to all sensors and #MRZ sensor status:
-        # Bit: 0: 0 = Data OK; 1 = Data OK and sensor is chosen as active; #SCL only: 1 = Valid data and 1PPS OK
-        # Bit: 1: 0
-        # Bit: 2: 0 = Data OK; 1 = Reduced performance; #SCL only: 1 = Reduced performance, no time synchronisation of PU
-        # Bit: 3: 0
-        # Bit: 4: 0 = Data OK; 1 = Invalid data
-        # Bit: 5: 0
-        # Bit: 6: 0 = Velocity from sensor; 1 = Velocity calculated by PU
-        # Bit: 7: 0
-        # For  #SPO (position) and CPO (position compatibility) datagrams, bit 8 - 15:
-        # Bit: 8: 0
-        # Bit: 9: 0 = Time from PU used (system); 1 = Time from datagram used (e.g. from GGA telegram)
-        # Bit: 10: 0 = No motion correction; 1 = With motion correction
-        # Bit: 11: 0 = Normal quality check; 1 = Operator quality check. Data always valid
-        # Bit: 12: 0
-        # Bit: 13: 0
-        # Bit: 14: 0
-        # Bit: 15: 0
+        '''
+                Bit:    Sensor data: 
+                0       0 = Data OK; 1 = Data OK and sensor is chosen as active; 
+                        #SCL only: 1 = Valid data and 1PPS OK
+                1       0
+                2       0 = Data OK; 1 = Reduced performance; 
+                        #SCL only: 1 = Reduced performance, no time synchronisation of PU
+                3       0
+                4       0 = Data OK; 1 = Invalid data
+                5       0
+                6       0 = Velocity from sensor; 1 = Velocity calculated by PU
+                7       0
+        '''
+        # For #SPO (position) and CPO (position compatibility) datagrams, bit 8 - 15:
+        '''
+                Bit:    Sensor data: 
+                8       0
+                9       0 = Time from PU used (system); 1 = Time from datagram used (e.g. from GGA telegram)
+                10      0 = No motion correction; 1 = With motion correction
+                11      0 = Normal quality check; 1 = Operator quality check. Data always valid.
+                12      0
+                13      0
+                14      0
+                15      0
+        '''
         dg['sensorStatus'] = fields[2]
         dg['padding'] = fields[3]
 
-        self.FID.seek(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size, 1)  # Skips unknown fields.
+        # Skip unknown fields.
+        self.FID.seek(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size, 1)
 
         return dg
 
@@ -1053,8 +1090,8 @@ class kmall():
         string.
         :return: A dictionary containing EMdgmSPOdataBlock ('sensorData').
         """
-        # LMD added, tested.
         # NOTE: There's no fields for the number of bytes in this record. Odd.
+        # LMD added, tested.
 
         dg = {}
         format_to_unpack = "2I1f"
@@ -1064,7 +1101,8 @@ class kmall():
         dg['timeFromSensor_sec'] = fields[0]
         # UTC time from position sensor. Unit nano seconds remainder.
         dg['timeFromSensor_nanosec'] = fields[1]
-        dg['datetime'] = datetime.datetime.utcfromtimestamp(dg['timeFromSensor_sec'] + dg['timeFromSensor_nanosec'] / 1.0E9)
+        dg['datetime'] = datetime.datetime.utcfromtimestamp(dg['timeFromSensor_sec']
+                                                            + dg['timeFromSensor_nanosec'] / 1.0E9)
         # Only if available as input from sensor. Calculation according to format.
         dg['posFixQuality_m'] = fields[2]
 
@@ -1112,10 +1150,15 @@ class kmall():
         """
         # LMD added, tested.
 
+        start = self.FID.tell()
+
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
         dg['sensorData'] = self.read_EMdgmSPOdataBlock()
+
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
 
         return dg
 
@@ -1199,10 +1242,9 @@ class kmall():
     def read_KMdelayedHeave(self):
         """
         Read #SKM - delayed heave. Included if available from sensor.
-        :param bytesPerSample: Length in bytes of one whole KM binary sensor sample.
-        From EMdgmSKMinfo['numBytesPerSample'].
         :return: A dictionary containing KMdelayedHeave.
         """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
         # LMD tested with 'empty' delayed heave fields.
         # TODO: Test with data containing delayed heave.
 
@@ -1215,11 +1257,6 @@ class kmall():
         dg['datetime'] = datetime.datetime.utcfromtimestamp(dg['time_sec'] + dg['time_nanosec'] / 1.0E9)
         # Delayed heave. Unit meter.
         dg['delayedHeave_m'] = fields[2]
-
-        # In testing, it appears 'bytesPerSample' = KMbinary + KMdelayedHeave.
-        # We will run into errors here if we use this method to skip unknown fields.
-        # Skip unknown fields
-        #self.FID.seek(bytesPerSample - struct.Struct(format_to_unpack).size, 1)
 
         if self.verbose > 2:
             self.print_datagram(dg)
@@ -1364,6 +1401,8 @@ class kmall():
         """
         # LMD tested.
 
+        start = self.FID.tell()
+
         # LMD implementation:
         dg = {}
 
@@ -1380,6 +1419,205 @@ class kmall():
         dg = {**dgH, **dgInfo, **dgSamples}
         '''
 
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
+
+        return dg
+
+    def read_EMdgmSVPpoint(self):
+        """
+        Read #SVP - Sound Velocity Profile. Data from one depth point contains information specified in this struct.
+        :return: A dictionary containing EMdgmSVPpoint.
+        """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
+        # LMD added, tested.
+
+        dg = {}
+        format_to_unpack = "2f1I2f"
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+
+        # Depth at which measurement is taken. Unit m. Valid range from 0.00 m to 12000 m.
+        dg['depth_m'] = fields[0]
+        # Measured sound velocity from profile. Unit m/s. For a CTD profile, this will be the calculated sound velocity.
+        dg['soundVelocity_mPerSec'] = fields[1]
+        # Former absorption coefficient. Voided.
+        dg['padding'] = fields[2]
+        # Water temperature at given depth. Unit Celsius. For a Sound velocity profile (S00), this will be set to 0.00.
+        dg['temp_C'] = fields[3]
+        # Salinity of water at given depth. For a Sound velocity profile (S00), this will be set to 0.00.
+        dg['salinity'] = fields[4]
+
+        return dg
+
+    def read_EMdgmSVP(self):
+        """
+        Read #SVP - Sound Velocity Profile. Data from sound velocity profile or from CTD profile.
+        Sound velocity is measured directly or estimated, respectively.
+        :return: A dictionary containing EMdgmSVP.
+        """
+        # LMD added, tested.
+
+        start = self.FID.tell()
+
+        dg = {}
+        dg['header'] = self.read_EMdgmHeader()
+
+        format_to_unpack = "2H4s1I"
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+
+        # Size in bytes of body part struct. Used for denoting size of rest of datagram.
+        dg['numBytesCmnPart'] = fields[0]
+        # Number of sound velocity samples.
+        dg['numSamples'] = fields[1]
+        # Sound velocity profile format:
+        '''
+            'S00' = sound velocity profile
+            'S01' = CTD profile
+        '''
+        dg['sensorFormat'] = fields[2]
+        # Time extracted from the Sound Velocity Profile. Parameter is set to zero if not found.
+        dg['time_sec'] = fields[3]
+        dg['datetime'] = datetime.datetime.utcfromtimestamp(dg['time_sec'])
+
+        format_to_unpack = "2d"
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+
+        # Latitude in degrees. Negative if southern hemisphere. Position extracted from the Sound Velocity Profile.
+        # Parameter is set to define UNAVAILABLE_LATITUDE if not available.
+        dg['latitude_deg'] = fields[0]
+        # Longitude in degrees. Negative if western hemisphere. Position extracted from the Sound Velocity Profile.
+        # Parameter is set to define UNAVAILABLE_LONGITUDE if not available.
+        dg['longitude_deg'] = fields[1]
+
+        # SVP point samples, repeated numSamples times.
+        sensorData = []
+        for record in range(dg['numSamples']):
+            sensorData.append(self.read_EMdgmSVPpoint())
+        dg['sensorData'] = self.listofdicts2dictoflists(sensorData)
+
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
+
+        return dg
+
+    def read_EMdgmSVTinfo(self):
+        """
+        Read part of Sound Velocity at Transducer datagram.
+        :return: A dictionary containing EMdgmSVTinfo.
+        """
+        # LMD added, tested.
+
+        dg = {}
+        format_to_unpack = "6H2f"
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+
+        # Size in bytes of current struct. Used for denoting size of rest of datagram in cases where only one
+        # datablock is attached.
+        dg['numBytesInfoPart'] = fields[0]
+        # Sensor status. To indicate quality of sensor data is valid or invalid. Quality may be invalid even if sensor
+        # is active and the PU receives data. Bit code vary according to type of sensor.
+        # Bits 0-7 common to all sensors and #MRZ sensor status:
+        '''
+                Bit:   Sensor data: 
+                0      0 Data OK; 1 Data OK and sensor chosen is active
+                1      0
+                2      0 Data OK; 1 Reduced Performance
+                3      0
+                4      0 Data OK; 1 Invalid Data
+                5      0
+                6      0 
+        '''
+        dg['sensorStatus'] = fields[1]
+        # Format of raw data from input sensor, given in numerical code according to table below.
+        '''
+                Code:   Sensor format: 
+                1       AML NMEA
+                2       AML SV
+                3       AML SVT
+                4       AML SVP
+                5       Micro SV
+                6       Micro SVT
+                7       Micro SVP
+                8       Valeport MiniSVS
+                9       KSSIS 80
+                10      KSSIS 43
+        '''
+        dg['sensorInputFormat'] = fields[2]
+        # Number of sensor samples added in this datagram.
+        dg['numSamplesArray'] = fields[3]
+        # Length in bytes of one whole SVT sensor sample.
+        dg['numBytesPerSample'] = fields[4]
+        # Field to indicate which information is available from the input sensor, at the given sensor format.
+        # 0 = not available; 1 = data is available
+        # Expected data field in sensor input:
+        '''
+                Bit:    Sensor data: 
+                0       Sound Velocity
+                1       Temperature
+                2       Pressure
+                3       Salinity
+        '''
+        dg['sensorDataContents'] = fields[5]
+        # Time parameter for moving median filter. Unit seconds.
+        dg['filterTime_sec'] = fields[6]
+        # Offset for measured sound velocity set in K-Controller. Unit m/s.
+        dg['soundVelocity_mPerSec_offset'] = fields[7]
+
+        # Skip unknown fields.
+        self.FID.seek(dg['numBytesInfoPart'] - struct.Struct(format_to_unpack).size, 1)
+
+        return dg
+
+    def read_EMdgmSVTsample(self):
+        """
+        Read #SVT - Sound Velocity at Transducer. Data sample.
+        :return: A dictionary containing EMdgmSVTsample.
+        """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
+        # LMD added, tested.
+
+        dg = {}
+        format_to_unpack = "2I4f"
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+
+        # Time in second. Epoch 1970-01-01. time_nanosec part to be added for more exact time.
+        dg['time_sec'] = fields[0]
+        # Nano seconds remainder. time_nanosec part to be added to time_sec for more exact time.
+        dg['time_nanosec'] = fields[1]
+        dg['datetime'] = datetime.datetime.utcfromtimestamp(dg['time_sec'] + dg['time_nanosec'] / 1.0E9)
+        # Measured sound velocity from sound velocity probe. Unit m/s.
+        dg['soundVelocity_mPerSec'] = fields[2]
+        # Water temperature from sound velocity probe. Unit Celsius.
+        dg['temp_C'] = fields[3]
+        # Pressure. Unit Pascal.
+        dg['pressure_Pa'] = fields[4]
+        # Salinity of water. Measured in g salt/kg sea water.
+        dg['salinity'] = fields[5]
+
+        return dg
+
+    def read_EMdgmSVT(self):
+        """
+        Read #SVT - Sound Velocity at Transducer. Data for sound velocity and temperature are measured directly
+        on the sound velocity probe.
+        :return: A dictionary containing EMdgmSVT.
+        """
+        # LMD added, tested.
+
+        start = self.FID.tell()
+
+        dg = {}
+        dg['header'] = self.read_EMdgmHeader()
+        dg['infoPart'] = self.read_EMdgmSVTinfo()
+
+        sensorData = []
+        for record in range(dg['infoPart']['numSamplesArray']):
+            sensorData.append(self.read_EMdgmSVTsample())
+        dg['sensorData'] = self.listofdicts2dictoflists(sensorData)
+
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
+
         return dg
 
     def read_EMdgmSCLdataFromSensor(self):
@@ -1387,6 +1625,7 @@ class kmall():
         Read part of clock datagram giving offsets and the raw input in text format.
         :return: A dictionary containing EMdgmSCLdataFromSensor.
         """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
         # LMD tested.
 
         dg = {}
@@ -1404,7 +1643,7 @@ class kmall():
         # TODO: This works for now, but maybe there is a smarter way?
         # Position data as received from sensor, i.e. uncorrected for motion etc.
         tmp = fields[2]
-        dg['posDataFromSensor'] = tmp[0:tmp.find(b'\x00\x00L')]
+        dg['dataFromSensor'] = tmp[0:tmp.find(b'\x00\x00L')]
 
         return dg
 
@@ -1415,10 +1654,15 @@ class kmall():
         """
         # LMD tested.
 
+        start = self.FID.tell()
+
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
         dg['sensData'] = self.read_EMdgmSCLdataFromSensor()
+
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
 
         return dg
 
@@ -1429,9 +1673,10 @@ class kmall():
         scale factor and data as received from sensor (uncorrected).
         :return: A dictionary containing EMdgmSDEdataFromSensor
         """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
         # LMD added, untested.
         # TODO: Test with depth data to complete this function!
-        sys.exit("WARNING: You are using an incomplete, untested function: read_EMdgmSDEdataFromSensor.")
+        print("WARNING: You are using an incomplete, untested function: read_EMdgmSDEdataFromSensor.")
 
         dg = {}
         format_to_unpack = "3f2d32s"
@@ -1458,12 +1703,17 @@ class kmall():
         """
         # LMD added, untested.
         # TODO: Test with depth data!
-        sys.exit("WARNING: You are using an incomplete, untested function: read_EMdgmSDE.")
+        print("WARNING: You are using an incomplete, untested function: read_EMdgmSDE.")
+
+        start = self.FID.tell()
 
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
         dg['sensorData'] = self.read_EMdgmSDEdataFromSensor()
+
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
 
         return dg
 
@@ -1473,9 +1723,10 @@ class kmall():
         Read part of Height datagram, giving corrected and uncorrected data as received from sensor.
         :return: A dictionary containing EMdgmSHIdataFromSensor.
         """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
         # LMD added, untested.
         # TODO: Test with height data to complete this function!
-        sys.exit("WARNING: You are using an incomplete, untested function: read_EMdgmSHIdataFromSensor.")
+        print("WARNING: You are using an incomplete, untested function: read_EMdgmSHIdataFromSensor.")
 
         dg = {}
         format_to_unpack = "1H1f32s"
@@ -1500,12 +1751,17 @@ class kmall():
         """
         # LMD added, untested.
         # TODO: Test with height data!
-        sys.exit("WARNING: You are using an incomplete, untested function: read_EMdgmSHI.")
+        print("WARNING: You are using an incomplete, untested function: read_EMdgmSHI.")
+
+        start = self.FID.tell()
 
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
         dg['sensData'] = self.read_EMdgmSHIdataFromSensor()
+
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
 
         return dg
 
@@ -1517,6 +1773,7 @@ class kmall():
         sensor in text string.
         :return: A dictionary containing EMdgmCPOdataBlock.
         """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
         # LMD tested.
 
         dg = {}
@@ -1556,10 +1813,15 @@ class kmall():
         """
         # LMD tested.
 
+        start = self.FID.tell()
+
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
         dg['sensorData'] = self.read_EMdgmCPOdataBlock()
+
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
 
         return dg
 
@@ -1569,6 +1831,7 @@ class kmall():
         reference point.
         :return: A dictionary containing EMdgmCHEdata.
         """
+        # NOTE: There's no fields for the number of bytes in this record. Odd.
         # LMD added, tested.
 
         dg = {}
@@ -1588,10 +1851,15 @@ class kmall():
         """
         # LMD added, tested.
 
+        start = self.FID.tell()
+
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmMbody()
         dg['data'] = self.read_EMdgmCHEdata()
+
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
 
         return dg
 
