@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import os
 import kmall
 
@@ -7,6 +9,10 @@ import kmall
 #2019 Pre-Samoa MAC Test Near Portsmouth
 #file = '0006_20190529_161633_ASVBEN.kmall'
 
+#Val's Test File
+file = 'data/0007_20190513_154724_ASVBEN.kmall'
+
+'''
 path = 'data'
 for file in os.listdir(path):
 
@@ -23,6 +29,12 @@ for file in os.listdir(path):
 
     #pingCount = k.check_ping_count()
     #print(pingCount)
+'''
+
+if True:
+    k = kmall.kmall(file)
+    k.OpenFiletoRead()
+    k.index_file()
 
     # Get the file byte count offset for each IIP datagram.
     IIPOffsets = [x for x, y in zip(k.msgoffset, k.msgtype) if y == "b'#IIP'"]

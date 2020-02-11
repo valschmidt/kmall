@@ -1,7 +1,5 @@
-# !/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-# NOTE: From Val's GitHub repository: kmall/kmall.py
 
 """
 A python class to read Kongsberg KMALL data format for swath mapping
