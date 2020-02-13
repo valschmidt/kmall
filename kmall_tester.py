@@ -10,16 +10,19 @@ import kmall
 #file = '0006_20190529_161633_ASVBEN.kmall'
 
 #Val's Test File
-file = 'data/0007_20190513_154724_ASVBEN.kmall'
+#file = 'data/0007_20190513_154724_ASVBEN.kmall'
 
-'''
+#SCL read fails on this file:
+#file = 'data/0012_20190529_182623_ASVBEN.kmall'
+
+
 path = 'data'
-for file in os.listdir(path):
+for item in os.listdir(path):
 
-    print('File: ', file)
+    print('File: ', item)
 
-    pathFile = path + '/' + file
-    k = kmall.kmall(pathFile)
+    file = path + '/' + item
+    k = kmall.kmall(file)
     k.OpenFiletoRead()
     k.index_file()
 
@@ -29,12 +32,6 @@ for file in os.listdir(path):
 
     #pingCount = k.check_ping_count()
     #print(pingCount)
-'''
-
-if True:
-    k = kmall.kmall(file)
-    k.OpenFiletoRead()
-    k.index_file()
 
     # Get the file byte count offset for each IIP datagram.
     IIPOffsets = [x for x, y in zip(k.msgoffset, k.msgtype) if y == "b'#IIP'"]
@@ -74,7 +71,7 @@ if True:
     for offset in IBSOffsets:
         k.FID.seek(offset, 0)
         dg_IBS = k.read_EMdgmIB()
-        # print(dg_IBS)
+        #print(dg_IBS)
 
     # Get the file byte count offset for each MRZ datagram.
     MRZOffsets = [x for x, y in zip(k.msgoffset, k.msgtype) if y == "b'#MRZ'"]

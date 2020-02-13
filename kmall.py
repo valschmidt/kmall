@@ -1105,7 +1105,8 @@ class kmall():
         dg['posFixQuality_m'] = fields[2]
 
         # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
-        format_to_unpack = "2d3f250s"
+        #format_to_unpack = "2d3f250s"
+        format_to_unpack = "2d3f"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Motion corrected (if enabled in K-Controller) data as used in depth calculations. Referred to vessel
@@ -1125,11 +1126,18 @@ class kmall():
         # If unavailable or from inactive sensor, value set to define UNAVAILABLE_ELLIPSOIDHEIGHT.
         dg['ellipsoidHeightReRefPoint_m'] = fields[4]
 
-        # TODO: This is an array of (max?) length MAX_SPO_DATALENGTH; do something else here?
-        # TODO: Get MAX_SPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
+        # TODO: This is an array of max length MAX_SPO_DATALENGTH; do something else here?
+        # TODO: Get MAX_SPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
         # TODO: This works for now, but maybe there is a smarter way?
+        MAX_SPO_DATALENGTH = 250
+        format_to_unpack = str(MAX_SPO_DATALENGTH) + "s"
+
+        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
+            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
+
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
         # Position data as received from sensor, i.e. uncorrected for motion etc.
-        tmp = fields[5]
+        tmp = fields[0]
         dg['posDataFromSensor'] = tmp[0:tmp.find(b'\r\n')]
 
         if self.verbose > 2:
@@ -1627,7 +1635,8 @@ class kmall():
         # LMD tested.
 
         dg = {}
-        format_to_unpack = "1f1i64s"
+        #format_to_unpack = "1f1i64s"
+        format_to_unpack = "1f1i"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Offset in seconds from K-Controller operator input.
@@ -1636,11 +1645,18 @@ class kmall():
         # source. Unit nanoseconds. Difference smaller than +/- 1 second if 1PPS is active and sync from ZDA.
         dg['clockDevPU_nanosec'] = fields[1]
 
-        # TODO: This is an array of (max?) length MAX_SCL_DATALENGTH; do something else here?
-        # TODO: Get MAX_SCL_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
+        # TODO: This is an array of max length MAX_SCL_DATALENGTH; do something else here?
+        # TODO: Get MAX_SCL_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
         # TODO: This works for now, but maybe there is a smarter way?
+        MAX_SCL_DATALENGTH = 64
+        format_to_unpack = str(MAX_SCL_DATALENGTH) + "s"
+
+        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
+            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
+
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
         # Position data as received from sensor, i.e. uncorrected for motion etc.
-        tmp = fields[2]
+        tmp = fields[0]
         dg['dataFromSensor'] = tmp[0:tmp.find(b'\x00\x00L')]
 
         return dg
@@ -1677,7 +1693,8 @@ class kmall():
         print("WARNING: You are using an incomplete, untested function: read_EMdgmSDEdataFromSensor.")
 
         dg = {}
-        format_to_unpack = "3f2d32s"
+        #format_to_unpack = "3f2d32s"
+        format_to_unpack = "3f2d"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         dg['depthUsed_m'] = fields[0]
@@ -1686,10 +1703,17 @@ class kmall():
         dg['latitude_deg'] = fields[3]
         dg['longitude_deg'] = fields[4]
 
-        # TODO: This is an array of (max?) length MAX_SDE_DATALENGTH; do something else here?
-        # TODO: Get MAX_SDE_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
+        # TODO: This is an array of max length MAX_SDE_DATALENGTH; do something else here?
+        # TODO: Get MAX_SDE_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
         # TODO: Test with depth data to complete this function!
-        tmp = fields[5]
+        MAX_SDE_DATALENGTH = 32
+        format_to_unpack = str(MAX_SDE_DATALENGTH) + "s"
+
+        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
+            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
+
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+        tmp = fields[0]
         #dg['dataFromSensor'] = ...
 
         return dg
@@ -1727,19 +1751,26 @@ class kmall():
         print("WARNING: You are using an incomplete, untested function: read_EMdgmSHIdataFromSensor.")
 
         dg = {}
-        format_to_unpack = "1H1f32s"
+        #format_to_unpack = "1H1f32s"
+        format_to_unpack = "1H1f"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         dg['sensorType'] = fields[0]
         dg['heightUsed_m'] = fields[1]
 
-        # TODO: This is an array of (max?) length MAX_SHI_DATALENGTH; do something else here?
-        # TODO: Get MAX_SHI_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
+        # TODO: This is an array of max length MAX_SHI_DATALENGTH; do something else here?
+        # TODO: Get MAX_SHI_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
         # TODO: Test with height data to complete this function!
-        tmp = fields[2]
+        MAX_SHI_DATALENGTH = 32
+        format_to_unpack = str(MAX_SDE_DATALENGTH) + "s"
+
+        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
+            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
+
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+        tmp = fields[0]
         #dg['dataFromSensor'] = ...
 
-        print("DG: ", dg)
         return dg
 
     def read_EMdgmSHI(self):
@@ -1785,7 +1816,8 @@ class kmall():
         dg['posFixQuality'] = fields[2]
 
         # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
-        format_to_unpack = "2d3f250s"
+        #format_to_unpack = "2d3f250s"
+        format_to_unpack = "2d3f"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
         dg['correctedLat_deg'] = fields[0]
         dg['correctedLong_deg'] = fields[1]
@@ -1793,10 +1825,17 @@ class kmall():
         dg['courseOverGround_deg'] = fields[3]
         dg['ellipsoidHeightReRefPoint_m'] = fields[4]
 
-        # TODO: This is an array of(max?) length MAX_CPO_DATALENGTH; do something else here?
-        # TODO: Get MAX_CPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
+        # TODO: This is an array of max length MAX_CPO_DATALENGTH; do something else here?
+        # TODO: Get MAX_CPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
         # TODO: This works for now, but maybe there is a smarter way?
-        tmp = fields[5]
+        MAX_CPO_DATALENGTH = 50
+        format_to_unpack = str(MAX_CPO_DATALENGTH) + "s"
+
+        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
+            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
+
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+        tmp = fields[0]
         dg['posDataFromSensor'] = tmp[0:tmp.find(b'\r\n')]
 
         return dg
