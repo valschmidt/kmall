@@ -13,7 +13,10 @@ import struct
 import datetime
 import argparse
 import os
+import re
+import bz2
 from pyproj import Proj
+from scipy import stats
 
 
 class kmall():
@@ -1105,8 +1108,7 @@ class kmall():
         dg['posFixQuality_m'] = fields[2]
 
         # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
-        #format_to_unpack = "2d3f250s"
-        format_to_unpack = "2d3f"
+        format_to_unpack = "2d3f250s"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Motion corrected (if enabled in K-Controller) data as used in depth calculations. Referred to vessel
@@ -1126,18 +1128,11 @@ class kmall():
         # If unavailable or from inactive sensor, value set to define UNAVAILABLE_ELLIPSOIDHEIGHT.
         dg['ellipsoidHeightReRefPoint_m'] = fields[4]
 
-        # TODO: This is an array of max length MAX_SPO_DATALENGTH; do something else here?
-        # TODO: Get MAX_SPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
+        # TODO: This is an array of (max?) length MAX_SPO_DATALENGTH; do something else here?
+        # TODO: Get MAX_SPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
         # TODO: This works for now, but maybe there is a smarter way?
-        MAX_SPO_DATALENGTH = 250
-        format_to_unpack = str(MAX_SPO_DATALENGTH) + "s"
-
-        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
-            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
-
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
         # Position data as received from sensor, i.e. uncorrected for motion etc.
-        tmp = fields[0]
+        tmp = fields[5]
         dg['posDataFromSensor'] = tmp[0:tmp.find(b'\r\n')]
 
         if self.verbose > 2:
@@ -1635,8 +1630,7 @@ class kmall():
         # LMD tested.
 
         dg = {}
-        #format_to_unpack = "1f1i64s"
-        format_to_unpack = "1f1i"
+        format_to_unpack = "1f1i64s"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Offset in seconds from K-Controller operator input.
@@ -1645,18 +1639,11 @@ class kmall():
         # source. Unit nanoseconds. Difference smaller than +/- 1 second if 1PPS is active and sync from ZDA.
         dg['clockDevPU_nanosec'] = fields[1]
 
-        # TODO: This is an array of max length MAX_SCL_DATALENGTH; do something else here?
-        # TODO: Get MAX_SCL_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
+        # TODO: This is an array of (max?) length MAX_SCL_DATALENGTH; do something else here?
+        # TODO: Get MAX_SCL_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
         # TODO: This works for now, but maybe there is a smarter way?
-        MAX_SCL_DATALENGTH = 64
-        format_to_unpack = str(MAX_SCL_DATALENGTH) + "s"
-
-        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
-            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
-
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
         # Position data as received from sensor, i.e. uncorrected for motion etc.
-        tmp = fields[0]
+        tmp = fields[2]
         dg['dataFromSensor'] = tmp[0:tmp.find(b'\x00\x00L')]
 
         return dg
@@ -1693,8 +1680,7 @@ class kmall():
         print("WARNING: You are using an incomplete, untested function: read_EMdgmSDEdataFromSensor.")
 
         dg = {}
-        #format_to_unpack = "3f2d32s"
-        format_to_unpack = "3f2d"
+        format_to_unpack = "3f2d32s"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         dg['depthUsed_m'] = fields[0]
@@ -1703,17 +1689,10 @@ class kmall():
         dg['latitude_deg'] = fields[3]
         dg['longitude_deg'] = fields[4]
 
-        # TODO: This is an array of max length MAX_SDE_DATALENGTH; do something else here?
-        # TODO: Get MAX_SDE_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
+        # TODO: This is an array of (max?) length MAX_SDE_DATALENGTH; do something else here?
+        # TODO: Get MAX_SDE_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
         # TODO: Test with depth data to complete this function!
-        MAX_SDE_DATALENGTH = 32
-        format_to_unpack = str(MAX_SDE_DATALENGTH) + "s"
-
-        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
-            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
-
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
-        tmp = fields[0]
+        tmp = fields[5]
         #dg['dataFromSensor'] = ...
 
         return dg
@@ -1751,26 +1730,19 @@ class kmall():
         print("WARNING: You are using an incomplete, untested function: read_EMdgmSHIdataFromSensor.")
 
         dg = {}
-        #format_to_unpack = "1H1f32s"
-        format_to_unpack = "1H1f"
+        format_to_unpack = "1H1f32s"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         dg['sensorType'] = fields[0]
         dg['heightUsed_m'] = fields[1]
 
-        # TODO: This is an array of max length MAX_SHI_DATALENGTH; do something else here?
-        # TODO: Get MAX_SHI_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
+        # TODO: This is an array of (max?) length MAX_SHI_DATALENGTH; do something else here?
+        # TODO: Get MAX_SHI_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
         # TODO: Test with height data to complete this function!
-        MAX_SHI_DATALENGTH = 32
-        format_to_unpack = str(MAX_SDE_DATALENGTH) + "s"
-
-        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
-            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
-
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
-        tmp = fields[0]
+        tmp = fields[2]
         #dg['dataFromSensor'] = ...
 
+        print("DG: ", dg)
         return dg
 
     def read_EMdgmSHI(self):
@@ -1816,8 +1788,7 @@ class kmall():
         dg['posFixQuality'] = fields[2]
 
         # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
-        #format_to_unpack = "2d3f250s"
-        format_to_unpack = "2d3f"
+        format_to_unpack = "2d3f250s"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
         dg['correctedLat_deg'] = fields[0]
         dg['correctedLong_deg'] = fields[1]
@@ -1825,17 +1796,10 @@ class kmall():
         dg['courseOverGround_deg'] = fields[3]
         dg['ellipsoidHeightReRefPoint_m'] = fields[4]
 
-        # TODO: This is an array of max length MAX_CPO_DATALENGTH; do something else here?
-        # TODO: Get MAX_CPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack?
+        # TODO: This is an array of(max?) length MAX_CPO_DATALENGTH; do something else here?
+        # TODO: Get MAX_CPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
         # TODO: This works for now, but maybe there is a smarter way?
-        MAX_CPO_DATALENGTH = 50
-        format_to_unpack = str(MAX_CPO_DATALENGTH) + "s"
-
-        if ((self.FID.tell() + struct.Struct(format_to_unpack).size) > self.file_size):
-            format_to_unpack = str(self.file_size - self.FID.tell()) + "s"
-
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
-        tmp = fields[0]
+        tmp = fields[5]
         dg['posDataFromSensor'] = tmp[0:tmp.find(b'\r\n')]
 
         return dg
@@ -1901,6 +1865,1138 @@ class kmall():
         return dg
 
     ###########################################################
+    # Writing datagrams
+    ###########################################################
+    def write_EMdgmMRZ(self,dg):
+        ''' A method to write an MRZ datagram back to disk.'''
+    
+        # Force the header type to be MRZ, just in case
+        # the datagram is converted from another type and
+        # the old type is still set.
+        dg['header']['dgmType'] = b'#MRZ'
+
+        self.write_EMdgmHeader(dg['header'])
+        self.write_EMdgmMpartition(dg['partition'])
+        self.write_EMdgmMbody(dg['cmnPart'])
+        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'])
+    
+        for sector in range(dg['pingInfo']['numTxSectors']):
+            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'],sector)
+    
+        self.write_EMdgmMRZ_rxInfo(dg['rxInfo'])
+    
+        for detclass in range(dg['rxInfo']['numExtraDetectionClasses']):
+            self.write_EMdgmMRZ_extraDetClassInfo(FID,dg['extraDetClassInfo'],detclass)
+            
+        Nseabedimage_samples = 0
+        for record in range(dg['rxInfo']['numExtraDetections'] +
+                              dg['rxInfo']['numSoundingsMaxMain']):
+            self.write_EMdgmMRZ_sounding(dg['sounding'], record)
+            Nseabedimage_samples += dg['sounding']['SInumSamples'][record]
+        
+        if Nseabedimage_samples > 0:
+            if 'SIsample_desidB' not in dg:
+                print("Warning, no Imagery data to write, although the field SInumSamples in the sounding datagram is non-zero.")
+                print("This will produce an unreadable file.")
+                # FIX: Should throw an error here. 
+            else:
+                self.write_EMdgmMRZ_seabedImagery(dg, Nseabedimage_samples)
+    
+        self.FID.write(struct.pack("I",dg['header']['numBytesDgm']))
+    
+    def write_EMdgmMRZ_woImagery(self, dg):
+        ''' A method to write an MRZ datagram back to disk, but omitting the imagery data.'''
+    
+        # First we need to see how much space the imagery data will take. 
+        Nseabedimage_samples = 0
+        for record in range(dg['rxInfo']['numExtraDetections'] +
+                              dg['rxInfo']['numSoundingsMaxMain']):
+            Nseabedimage_samples += dg['sounding']['SInumSamples'][record]
+        imageryBytes = Nseabedimage_samples * 2
+    
+        # Now we need to reset the total packet size.
+        dg['header']['numBytesDgm'] -= imageryBytes
+
+        # Now write the packet, just leave out the imagery 
+        # data and set Nsamples  to 0.
+        self.write_EMdgmHeader(dg['header'])
+        self.write_EMdgmMpartition(dg['partition'])
+        self.write_EMdgmMbody(dg['cmnPart'])
+        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'])
+    
+        for sector in range(dg['pingInfo']['numTxSectors']):
+            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'],sector)
+    
+        write_EMdgmMRZ_rxInfo(dg['rxInfo'])
+    
+        for detclass in range(dg['rxInfo']['numExtraDetectionClasses']):
+                self.write_EMdgmMRZ_extraDetClassInfo(dg['extraDetClassInfo'],detclass)
+            
+        Nseabedimage_samples = 0
+        for record in range(dg['rxInfo']['numExtraDetections'] +
+                              dg['rxInfo']['numSoundingsMaxMain']):
+        
+            # Zero out the number of imagery samples for each sounding.
+            dg['sounding']['SInumSamples'][record] = 0
+            self.write_EMdgmMRZ_sounding(dg['sounding'], record)
+            Nseabedimage_samples += dg['sounding']['SInumSamples'][record]
+        
+        # Don't write the imagery data. 
+        #write_EMdgmMRZ_seabedImagery(FID, dg, Nseabedimage_samples)
+    
+        self.FID.write(struct.pack("I",dg['header']['numBytesDgm']))
+    
+    def write_EMdgmHeader(self, dg):
+        ''' Method to write the datagram header.
+       
+        write_EMdgmHeader(FID, dg['header'])
+       
+        '''
+    
+        format_to_pack = "<1I4s2B1H2I"
+        
+        dg_seconds = int(dg['dgtime'])
+        dg_nanoseconds = int((dg['dgtime'] - dg_seconds) * 1e9)
+        
+        self.FID.write(struct.pack(format_to_pack,
+                            dg['numBytesDgm'],
+                            dg['dgmType'],
+                            dg['dgmVersion'],
+                            dg['systemID'],
+                            dg['echoSounderID'],
+                            dg_seconds,
+                            dg_nanoseconds))
+
+
+    def write_EMdgmMpartition(self, dg):
+        ''' A method to write the Partition Information
+    
+        write_EMdgmMpartition(FID, dg['partition'])
+    
+        '''
+    
+        format_to_pack = "<2H"
+        self.FID.write(struct.pack(format_to_pack,
+                             dg['numOfDgms'],
+                             dg['dgmNum']))
+
+
+    def write_EMdgmMbody(self, dg):
+        ''' A method to write the datagram body information
+    
+        write_EMdgmMbody(FID, dg['cmnPart'])
+    
+        '''
+    
+        format_to_pack = "<2H8B"
+        self.FID.write(struct.pack(format_to_pack,
+                            dg['numBytesCmnPart'],
+                            dg['pingCnt'],
+                            dg['rxFansPerPing'],
+                            dg['rxFanIndex'],
+                            dg['swathsPerPing'],
+                            dg['swathAlongPosition'],
+                            dg['txTransducerInd'],
+                            dg['rxTransducerInd'],
+                            dg['numRxTransducers'],
+                            dg['algorithmType']))
+
+    def write_EMdgmMRZ_pingInfo(self, dg):
+        '''A method to write MRZ ping info.
+    
+        write_EMdgmMRZ_pingInfo(FID, dg['pinginfo'])
+    
+        '''
+    
+        format_to_pack_a = "<2H1f6B1H11f2h2B1H1I3f2H1f2H6f4B"
+        self.FID.write(struct.pack(format_to_pack_a,
+                             dg['numBytesInfoData'],
+                             dg['padding0'],
+                             dg['pingRate_Hz'],
+                             dg['beamSpacing'],
+                             dg['depthMode'],
+                             dg['subDepthMode'],
+                             dg['distanceBtwSwath'],
+                             dg['detectionMode'],
+                             dg['pulseForm'],
+                             dg['padding1'],
+                             dg['frequencyMode_Hz'],
+                             dg['freqRangeLowLim_Hz'],
+                             dg['freqRangeHighLim_Hz'],
+                             dg['maxTotalTxPulseLength_sec'],
+                             dg['maxEffTxPulseLength_sec'],
+                             dg['maxEffTxBandWidth_Hz'],
+                             dg['absCoeff_dBPerkm'],
+                             dg['portSectorEdge_deg'],
+                             dg['starbSectorEdge_deg'],
+                             dg['portMeanCov_deg'],
+                             dg['stbdMeanCov_deg'],
+                             dg['portMeanCov_m'],
+                             dg['starbMeanCov_m'],
+                             dg['modeAndStabilisation'],
+                             dg['runtimeFilter1'],
+                             dg['runtimeFilter2'],
+                             dg['pipeTrackingStatus'],
+                             dg['transmitArraySizeUsed_deg'],
+                             dg['receiveArraySizeUsed_deg'],
+                             dg['transmitPower_dB'],
+                             dg['SLrampUpTimeRemaining'],
+                             dg['padding2'],
+                             dg['yawAngle_deg'],
+                             dg['numTxSectors'],
+                             dg['numBytesPerTxSector'],
+                             dg['headingVessel_deg'],
+                             dg['soundSpeedAtTxDepth_mPerSec'],
+                             dg['txTransducerDepth_m'],
+                             dg['z_waterLevelReRefPoint_m'],
+                             dg['x_kmallToall_m'],
+                             dg['y_kmallToall_m'],
+                             dg['latLongInfo'],
+                             dg['posSensorStatus'],
+                             dg['attitudeSensorStatus'],
+                             dg['padding3']))
+    
+        # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
+        format_to_pack_b = "<2d1f"
+        self.FID.write(struct.pack(format_to_pack_b,
+                             dg['latitude_deg'],
+                             dg['longitude_deg'],
+                             dg['ellipsoidHeightReRefPoint_m']))
+
+
+    def write_EMdgmMRZ_txSectorInfo(self, dg, sector):
+        ''' Write MRZ txSectorInfo for single index "sector". 
+    
+        write_EMdgmMRZ_txSectorInfo(FID, dg['txSectorInfo'], sector)
+    
+        '''
+    
+        format_to_pack = "4B7f2B1H"
+        self.FID.write(struct.pack(format_to_pack,
+                             dg['txSectorNumb'][sector],
+                             dg['txArrNumber'][sector],
+                             dg['txSubArray'][sector],
+                             dg['padding0'][sector],
+                             dg['sectorTransmitDelay_sec'][sector],
+                             dg['tiltAngleReTx_deg'][sector],
+                             dg['txNominalSourceLevel_dB'][sector],
+                             dg['txFocusRange_m'][sector],
+                             dg['centreFreq_Hz'][sector],
+                             dg['signalBandWidth_Hz'][sector],
+                             dg['totalSignalLength_sec'][sector],
+                             dg['pulseShading'][sector],
+                             dg['signalWaveForm'][sector],
+                             dg['padding1'][sector]))
+
+
+    def write_EMdgmMRZ_rxInfo(self, dg):
+        ''' Write MRZ rxInfo datagram.
+    
+            write_EMdgmMRZ_rxInfo(FID, dg['rxInfo'])
+        
+            '''
+    
+        format_to_pack = "4H4f4H"
+        self.FID.write(struct.pack(format_to_pack,
+                             dg['numBytesRxInfo'],
+                             dg['numSoundingsMaxMain'],
+                             dg['numSoundingsValidMain'],
+                             dg['numBytesPerSounding'],
+                             dg['WCSampleRate'],
+                             dg['seabedImageSampleRate'],
+                             dg['BSnormal_dB'],
+                             dg['BSoblique_dB'],
+                             dg['extraDetectionAlarmFlag'],
+                             dg['numExtraDetections'],
+                             dg['numExtraDetectionClasses'],
+                             dg['numBytesPerClass']))
+
+
+
+    def write_EMdgmMRZ_extraDetClassInfo(self, dg,detclass):
+        ''' Write the MRZ sounding extra Detection Class information.
+    
+        write_EMdgmMRZ_extraDetClassInfo(FID,dg['extraDetClassInfo'],detclass)
+    
+        '''
+
+        format_to_pack = "1H1b1B"
+        self.FID.write(struct.pack(format_to_pack,
+                             dg['numExtraDetInClass'][detclass],
+                             dg['padding'][detclass],
+                             dg['alarmFlag'][detclass]))
+
+
+    def write_EMdgmMRZ_sounding(self, dg, record):
+        ''' Write MRZ soundings records.
+    
+        write_EMdgmMRZ_sounding(FID, dg['sounding'], record)
+    
+        '''
+    
+        format_to_pack = "1H8B1H6f2H18f4H"
+    
+        self.FID.write(struct.pack(format_to_pack,
+                             dg['soundingIndex'][record],
+                             dg['txSectorNumb'][record],
+                             dg['detectionType'][record],
+                             dg['detectionMethod'][record],
+                             dg['rejectionInfo1'][record],
+                             dg['rejectionInfo2'][record],
+                             dg['postProcessingInfo'][record],
+                             dg['detectionClass'][record],
+                             dg['detectionConfidenceLevel'][record],
+                             dg['padding'][record],
+                             dg['rangeFactor'][record],
+                             dg['qualityFactor'][record],
+                             dg['detectionUncertaintyVer_m'][record],
+                             dg['detectionUncertaintyHor_m'][record],
+                             dg['detectionWindowLength_sec'][record],
+                             dg['echoLength_sec'][record],
+                             dg['WCBeamNumb'][record],
+                             dg['WCrange_samples'][record],
+                             dg['WCNomBeamAngleAcross_deg'][record],
+                             dg['meanAbsCoeff_dbPerkm'][record],
+                             dg['reflectivity1_dB'][record],
+                             dg['reflectivity2_dB'][record],
+                             dg['receiverSensitivityApplied_dB'][record],
+                             dg['sourceLevelApplied_dB'][record],
+                             dg['BScalibration_dB'][record],
+                             dg['TVG_dB'][record],
+                             dg['beamAngleReRx_deg'][record],
+                             dg['beamAngleCorrection_deg'][record],
+                             dg['twoWayTravelTime_sec'][record],
+                             dg['twoWayTravelTimeCorrection_sec'][record],
+                             dg['deltaLatitude_deg'][record],
+                             dg['deltaLongitude_deg'][record],
+                             dg['z_reRefPoint_m'][record],
+                             dg['y_reRefPoint_m'][record],
+                             dg['x_reRefPoint_m'][record],
+                             dg['beamIncAngleAdj_deg'][record],
+                             dg['realTimeCleanInfo'][record],
+                             dg['SIstartRange_samples'][record],
+                             dg['SIcentreSample'][record],
+                             dg['SInumSamples'][record]))
+
+
+    def write_EMdgmMRZ_seabedImagery(self, dg, Nseabedimage_samples):
+        ''' Write the MRZ seabedImagery datagram 
+    
+        write_EMdgmMRZ_seabedImagery(FID, dg['SIsample_desidB'])
+    
+        '''
+        format_to_pack = str(Nseabedimage_samples) + "h"
+
+        self.FID.write(struct.pack(format_to_pack,
+                             *dg['SIsample_desidB']))
+    
+
+
+    ###############################################################
+    # Routines for writing and reading custom compressed packets
+    ###############################################################
+    
+    def compressSoundings(self, dg):
+        ''' A method to compress the soundings table by column rather than by row.'''
+        record = len(dg['soundingIndex'])
+        format_to_pack = "1H8B1H6f2H18f4H"
+
+
+        buffer = struct.pack(str(record)+"H", *dg['soundingIndex'])
+
+        buffer += struct.pack(str(record)+"B", *dg['txSectorNumb'])
+        buffer += struct.pack(str(record)+"B", *dg['detectionType'])
+        buffer += struct.pack(str(record)+"B", *dg['detectionMethod'])
+        buffer += struct.pack(str(record)+"B", *dg['rejectionInfo1'])
+        buffer += struct.pack(str(record)+"B", *dg['rejectionInfo2'])
+        buffer += struct.pack(str(record)+"B", *dg['postProcessingInfo'])
+        buffer += struct.pack(str(record)+"B", *dg['detectionClass'])
+        buffer += struct.pack(str(record)+"B", *dg['detectionConfidenceLevel'])
+
+        buffer += struct.pack(str(record)+"H", *dg['padding'])
+
+        buffer += struct.pack(str(record)+"f", *dg['rangeFactor'])
+        buffer += struct.pack(str(record)+"f", *dg['qualityFactor'])
+        buffer += struct.pack(str(record)+"f", *dg['detectionUncertaintyVer_m'])
+        buffer += struct.pack(str(record)+"f", *dg['detectionUncertaintyHor_m'])
+        buffer += struct.pack(str(record)+"f", *dg['detectionWindowLength_sec'])
+        buffer += struct.pack(str(record)+"f", *dg['echoLength_sec'])
+
+        buffer += struct.pack(str(record)+"H", *dg['WCBeamNumb'])
+        buffer += struct.pack(str(record)+"H", *dg['WCrange_samples'])
+
+        buffer += struct.pack(str(record)+"f", *dg['WCNomBeamAngleAcross_deg'])
+        buffer += struct.pack(str(record)+"f", *dg['meanAbsCoeff_dbPerkm'])
+        buffer += struct.pack(str(record)+"f", *dg['reflectivity1_dB'])
+        buffer += struct.pack(str(record)+"f", *dg['reflectivity2_dB'])
+        buffer += struct.pack(str(record)+"f", *dg['receiverSensitivityApplied_dB'])
+        buffer += struct.pack(str(record)+"f", *dg['sourceLevelApplied_dB'])
+        buffer += struct.pack(str(record)+"f", *dg['BScalibration_dB'])
+        buffer += struct.pack(str(record)+"f", *dg['TVG_dB'])
+        buffer += struct.pack(str(record)+"f", *dg['beamAngleReRx_deg'])
+        buffer += struct.pack(str(record)+"f", *dg['beamAngleCorrection_deg'])
+        buffer += struct.pack(str(record)+"f", *dg['twoWayTravelTime_sec'])
+        buffer += struct.pack(str(record)+"f", *dg['twoWayTravelTimeCorrection_sec'])
+        buffer += struct.pack(str(record)+"f", *dg['deltaLatitude_deg'])
+        buffer += struct.pack(str(record)+"f", *dg['deltaLongitude_deg'])
+        buffer += struct.pack(str(record)+"f", *dg['z_reRefPoint_m'])
+        buffer += struct.pack(str(record)+"f", *dg['y_reRefPoint_m'])
+        buffer += struct.pack(str(record)+"f", *dg['x_reRefPoint_m'])
+        buffer += struct.pack(str(record)+"f", *dg['beamIncAngleAdj_deg'])
+
+        buffer += struct.pack(str(record)+"H", *dg['realTimeCleanInfo'])
+        buffer += struct.pack(str(record)+"H", *dg['SIstartRange_samples'])
+        buffer += struct.pack(str(record)+"H", *dg['SIcentreSample'])
+        buffer += struct.pack(str(record)+"H", *dg['SInumSamples'])
+
+        return bz2.compress(buffer)
+    
+    def encodeArrayIntoUintX(self, A, res):
+        ''' Differential encoding of an array of values into a byte array
+
+        A:   An array of values
+        res: Desired resolution. This determines whether the encoding is
+             in an 8-bit or 16-bit array. Details provided below. 
+
+        returns: bytes buffer containing packed values and metadata to unpack it.
+
+        The data is differentially encoded, meaning that the difference 
+        in sequential values is calculated, then the minimum differential value
+        is subtracted off the array before scaling each value by max_bits / (max-min).
+
+        max_bits is 255 for uint8 encoding and 65535 for uint16 encoding. To 
+        determine the encoding, (max-min) / max_bits is compared to the desired 
+        resolution to ensure the minimum increment falls below it. uint8 is checked
+        first, if it fails, uint16 is checked. If it also fails, uint32 is 
+        used and no actual compression is achieved. 
+
+        A buffer is created from the result containing everything needed to 
+        decipher it. Specifically:
+
+        The first value of the original array as a 4-byte float
+        Min difference values as 4-byte float.
+        Max difference value as a 4-byte float.
+        The number of bits used in the encoding (8 or 16) as a uint8.
+        The number of difference values (len(A)-1) as an 4-byte unsigned int
+        The array of scaled difference values cast to unsigned "max_bits" integers 
+
+        '''
+        if isinstance(A,list):
+            A = np.array(A)
+
+        # There are two strategies taken here. Sometimes the
+        # data varies smoothly but over a large range, and it
+        # is more efficient to encode the data's sequential
+        # differences, since they are small in amplitude. 
+        # But sometimes the data is very stochastic and the
+        # first range of differences are large relative to 
+        # the maximum and minimum values in the data. For 
+        # example consider the sequence [0 2 0]. The range 
+        # of the values is 2, but the range of the first
+        # differences is 4 (+2 - -2). In this case, it is
+        # more efficient to encode the values themselves.
+        
+        valuesToEncode = np.diff(A.flatten())
+
+        maxv = np.max(valuesToEncode)
+        minv = np.min(valuesToEncode)
+
+        maxA = np.max(A)
+        minA = np.min(A)
+        
+        #print("maxvaluesToEncode:%f, minvaluesToEncode:%f" % (maxv,minv))
+        #print("maxA:%f, minA:%f" % (maxA,minA))
+        
+        differentialEncode = True
+        if (maxA - minA) < (maxv - minv):
+            differentialEncode = False
+            maxv = maxA
+            minv = minA
+            valuesToEncode = A[1:]
+
+        #print("Encoding: %s" % differentialEncode)
+
+
+        if ((maxv - minv) / 255.0) < res:
+            bits = 8
+        elif ((maxv - minv) / 65535.0) < res:
+            bits = 16
+        else:
+            bits = 32
+            
+            #print("CANNOT Maintain Resolution - Loss of Data!")
+            #print("max diff: %f, min diff: %f, res: %f" % (maxv, minv, res))
+            #bits = 16
+            #return None
+        #print(bits)
+        if maxv == minv:
+            # Value is constant. 
+            scaleFactor = 1.0
+        else:
+            if bits == 8:
+                scaleFactor = 255.0 / (maxv-minv)
+            elif bits == 16:
+                scaleFactor = 65535.0 / (maxv-minv)
+            else: 
+                scaleFactor = 4294967295.0 / (maxv - minv)
+
+        tmp = (((valuesToEncode-minv) * scaleFactor)).astype(int)
+            
+        # This bullshit gets around an apparant bug in the struct module. 
+        if isinstance(A[0],np.ndarray):
+            tmp2 = A[0].tolist()
+        else:
+            tmp2 = A[0]
+
+        if isinstance(tmp2, np.int64) or isinstance(tmp2, np.float64):
+            buffer = struct.pack('f', tmp2)
+        else:
+            buffer = struct.pack('f', tmp2[0])
+        #buffer = struct.pack('f',float(A[0][0]))
+
+        N = len(tmp)
+        buffer += struct.pack('f', minv)
+        buffer += struct.pack('f', maxv) 
+        # Set a marker by recording the number of points
+        # to encode as a negative number to indicate that
+        # the fields have been differentially encoded. 
+        if differentialEncode:
+            buffer += struct.pack('i',-N)
+        else:
+            buffer += struct.pack('i',N)
+        buffer += struct.pack('B', bits)
+        
+        if bits == 8:
+            buffer += struct.pack(str(N) + 'B', *tmp)
+        if bits == 16:
+            buffer += struct.pack(str(N) + 'H', *tmp)
+        if bits == 32:
+            buffer += struct.pack(str(N) + 'I', *tmp)
+
+        return buffer
+
+    def decodeUintXintoArray(self, buffer):
+        ''' Decodes differential-encoded data from X-bit unsigned integers into a float array.
+
+        See encodeArrayIntoUintX().
+        
+        '''
+
+        fields = struct.unpack('fffiB',buffer[0:17])
+        A0 = fields[0]
+        minv = fields[1]
+        maxv = fields[2]
+        N = fields[3]
+        differentialDecode = False
+        if N < 0:
+            differentialDecode = True
+            N = -N
+            
+        bits = fields[4]
+
+        if bits == 8:
+            dA = struct.unpack(str(N) + 'B',buffer[17:(17 + N)])
+            bytesDecoded = 17 + N
+        elif bits == 16:
+            dA = struct.unpack(str(N) + 'H',buffer[17:(17 + N*2)])
+            bytesDecoded = 17 + (N * 2)
+        elif bits == 32:
+            dA = struct.unpack(str(N) + 'I',buffer[17:(17 + N*4)])
+            bytesDecoded = 17 + (N * 4)
+
+        if differentialDecode:
+            if bits == 8:
+                orig = np.cumsum([A0] + list((np.array([float(x) for x in dA]) * (maxv-minv) / 255.0) + minv)).tolist()
+            elif bits == 16:
+                orig = np.cumsum([A0] + list((np.array([float(x) for x in dA]) * (maxv-minv) / 65535.0) + minv)).tolist()
+            else:
+                orig = np.cumsum([A0] + list((np.array([float(x) for x in dA]) * (maxv-minv) / 4294967295.0) + minv)).tolist()
+        else:
+            if bits == 8:
+                orig = [A0] + list((np.array([float(x) for x in dA]) * (maxv-minv) / 255.0) + minv)
+            elif bits == 16:
+                orig = [A0] + list((np.array([float(x) for x in dA]) * (maxv-minv) / 65535.0) + minv)
+            else:
+                orig = [A0] + list((np.array([float(x) for x in dA]) * (maxv-minv) / 4294967295.0) + minv)      
+
+            #print(A0)
+            #print(minv)
+            #print(maxv)
+            #print(N)
+            #print(bits)
+            
+        return (orig, bytesDecoded)
+    
+    def encodeAndCompressSoundings(self, dg):
+        ''' A method to differential-encode and compress the soundings table.
+        
+        Float values are encoded in this way
+        See encodeArrayIntoUintX() for details on how.
+
+        Some attempt is made to minimize the impact of 
+        non-float fields in the original datagram too.
+ 
+        A note about the "res" or resolution argument to 
+        encodeArrayIntoUintX(): This field attempts to be 
+        the maximum error one can expect between the original
+        value and the final decoded value after encoding. 
+        But because it is the first difference in values that 
+        are actually encoded, errors accumulate in the 
+        decoding process as the decoded differences are cumulateively
+        summed and the errors that result can be larger than the 
+        "res" value. Some experimentation is required to ensure
+        sufficient bits are used to reduce the desired error. 
+        '''
+        
+        record = len(dg['soundingIndex'])
+
+
+        buffer = struct.pack(str(record)+"H", *dg['soundingIndex'])
+
+        
+
+        ## The following optimization has almost no effect
+        ## because of the compressoin applied to the
+        ## sounding buffer:
+        
+        # Valid values for txSectorNumber are 0-7 (probably)
+        # Valid values for detectionType are 0-2
+        # Valid values for detectionMethod are 0-15.
+        
+        # But detectionMethod > 2 have been reserved for 
+        # future use as long as any one can remember. Under 
+        # the assumption that Kongsberg won't record more 
+        # than 9 detection methods or have more than 9 
+        # transmit sectors, these values can be packed 
+        # into a single 8-bit value. 
+
+        tmp = (np.array(dg['detectionType']) * 100. + 
+                np.array(dg['detectionMethod']) * 10. + 
+                   np.array(dg['txSectorNumb'])).astype(int)
+        buffer += struct.pack(str(record)+"B", *tmp)
+        # I don't think there's any way to tell with no ambiguity
+        # when decoding if they were packed or not. For example,
+        # if there were just one tx sector, and only normal type
+        # detections of using amplitude method, the values would 
+        # all be 1, which is a valid tx sector value. So I'll leave
+        # these commented out. 
+        #else:
+        #buffer += struct.pack(str(record)+"B", *dg['txSectorNumb'])
+        #buffer += struct.pack(str(record)+"B", *dg['detectionType'])
+        #buffer += struct.pack(str(record)+"B", *dg['detectionMethod'])
+
+        buffer += struct.pack(str(record)+"B", *dg['rejectionInfo1'])
+        buffer += struct.pack(str(record)+"B", *dg['rejectionInfo2'])
+        buffer += struct.pack(str(record)+"B", *dg['postProcessingInfo'])
+        buffer += struct.pack(str(record)+"B", *dg['detectionClass'])
+        buffer += struct.pack(str(record)+"B", *dg['detectionConfidenceLevel'])
+
+        # No point in carrying along the padding field. It's for byte alignment
+        # but we've already reorganized the data. so we can omit it
+        # and recreate it on the other side.
+
+
+        buffer += self.encodeArrayIntoUintX(dg['rangeFactor'], 1)
+        buffer += self.encodeArrayIntoUintX(dg['qualityFactor'], .01)
+        buffer += self.encodeArrayIntoUintX(dg['detectionUncertaintyVer_m'],.01)
+        buffer += self.encodeArrayIntoUintX(dg['detectionUncertaintyHor_m'],.1)
+        buffer += self.encodeArrayIntoUintX(dg['detectionWindowLength_sec'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['echoLength_sec'],.001)
+
+        buffer += struct.pack(str(record)+"H", *dg['WCBeamNumb'])
+        buffer += struct.pack(str(record)+"H", *dg['WCrange_samples'])
+        buffer += self.encodeArrayIntoUintX(dg['WCNomBeamAngleAcross_deg'],.001)
+        
+        # meanAbsCoeff_dbPerkm is a single value per transmit sector. No point in 
+        # encoding them all. This method first line gets a unique index for 
+        # each sector. These are used to capture a dbPkm for each.
+        _, idx = np.unique(dg['txSectorNumb'], return_index=True)
+        # Encoding as ushort's in .01's of a dB. 
+        vals = np.round(np.array(dg['meanAbsCoeff_dbPerkm'])[np.sort(idx)] * 100).astype(int)
+        buffer += struct.pack(str(len(idx)) + "H", *vals)
+               
+        # Reflectivity1_dB values get -100 when the detect is invalid
+        # and reflectivity2_dB get any of several values thare are
+        # also non-sensical. Because they are never near the mean of 
+        # the valid data, the differential encoding scheme used
+        # here becomes very inefficient. So we will set them to 
+        # the mode of the data to optimize the encoding and set them
+        # back to their original values on decoding. 
+        
+        # The values are rounded to 2 decimal places first because 
+        # they are floats and the chances that any two floats are 
+        # the same is quite small. 
+        dg['reflectivity1_dB'] = np.round(dg['reflectivity1_dB'],decimals=2)
+
+        # This wizardry calculates the mode (most frequent value)
+        # of the reflectivity values associated with valid detects.
+        reflectivity_mode = stats.mode([y for x, y in 
+            zip(dg['detectionMethod'],dg['reflectivity1_dB']) 
+                                            if x != 0 ])[0][0] 
+        # Replace all the non-detects with the mode.
+        dg['reflectivity1_dB'] = [y if x != 0 else reflectivity_mode 
+                            for x, y in 
+                            zip(dg['detectionMethod'], dg['reflectivity1_dB'])]
+
+        # Do the same with reflectiivty2.
+        dg['reflectivity2_dB'] = np.round(dg['reflectivity2_dB'],decimals=2)
+        reflectivity_mode = stats.mode([y for x, y in 
+            zip(dg['detectionMethod'],dg['reflectivity2_dB']) 
+                                            if x != 0 ])[0][0] 
+        # Replace all the non-detects with the mode.
+        dg['reflectivity2_dB'] = [y if x != 0 else reflectivity_mode 
+                            for x, y in 
+                            zip(dg['detectionMethod'], dg['reflectivity2_dB'])]
+         
+        buffer += self.encodeArrayIntoUintX(dg['reflectivity1_dB'],.1)
+        buffer += self.encodeArrayIntoUintX(dg['reflectivity2_dB'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['receiverSensitivityApplied_dB'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['sourceLevelApplied_dB'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['BScalibration_dB'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['TVG_dB'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['beamAngleReRx_deg'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['beamAngleCorrection_deg'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['twoWayTravelTime_sec'],.000001)
+        buffer += self.encodeArrayIntoUintX(dg['twoWayTravelTimeCorrection_sec'],.0000001)
+        buffer += self.encodeArrayIntoUintX(dg['deltaLatitude_deg'],.0000001)
+        buffer += self.encodeArrayIntoUintX(dg['deltaLongitude_deg'],.0000001)
+        buffer += self.encodeArrayIntoUintX(dg['z_reRefPoint_m'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['y_reRefPoint_m'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['x_reRefPoint_m'],.001)
+        buffer += self.encodeArrayIntoUintX(dg['beamIncAngleAdj_deg'],.001)
+
+        # realTimeCleanInfo is for future use. So we can omit it for now.
+        #buffer += struct.pack(str(record)+"H", *dg['realTimeCleanInfo'])
+        
+        buffer += struct.pack(str(record)+"H", *dg['SIstartRange_samples'])
+        buffer += struct.pack(str(record)+"H", *dg['SIcentreSample'])
+        buffer += struct.pack(str(record)+"H", *dg['SInumSamples'])
+
+        return bz2.compress(buffer)
+
+    def expandAndDecodeSoundings(self, buffer,records):
+        ''' When the soundings datagram is differential-encoded and compressed, this method reverses it on reading.
+
+        buffer:  bytes object containing the compressed data. 
+        records: Number of soundings encoded in the block.
+
+        returns: dg['sounding'] containing dictionary of lists of sounding record fields.
+        '''
+
+        buffer = bz2.decompress(buffer)
+        dg = {}
+        ptr = 0
+        dg['soundingIndex'] = struct.unpack(str(records) + "H", buffer[0:(records * 2)])
+        ptr += (records * 2)
+        
+        
+        tmp = np.array(struct.unpack(str(records) + "B", buffer[ptr:(ptr + records )]))
+        ptr += records 
+        dg['detectionType'] = np.round(tmp/100.).astype(int)
+        dg['detectionMethod'] = np.round((tmp-dg['detectionType']*100)/10.).astype(int)
+        dg['txSectorNumb'] = np.round((tmp-dg['detectionType']*100 - dg['detectionMethod']*10)).astype(int)
+        dg['detectionType'] = dg['detectionType'].tolist()
+        dg['detectionMethod'] = dg['detectionMethod'].tolist()
+        dg['txSectorNumb'] = dg['txSectorNumb'].tolist()
+        #dg['txSectorNumb'] = struct.unpack(str(records) + "B", buffer[ptr:(ptr + records )])
+        #ptr += records 
+        #dg['detectionType'] = struct.unpack(str(records) + "B", buffer[ptr:(ptr + records)])
+        #ptr += records
+        #dg['detectionMethod'] = struct.unpack(str(records) + "B", buffer[ptr:(ptr + records)])
+        #ptr += records
+        dg['rejectionInfo1'] = struct.unpack(str(records) + "B", buffer[ptr:(ptr + records)])
+        ptr += records
+        dg['rejectionInfo2'] = struct.unpack(str(records) + "B", buffer[ptr:(ptr + records)])
+        ptr += records
+        dg['postProcessingInfo'] = struct.unpack(str(records) + "B", buffer[ptr:(ptr + records)])
+        ptr += records
+        dg['detectionClass'] = struct.unpack(str(records) + "B", buffer[ptr:(ptr + records)])
+        ptr += records
+        dg['detectionConfidenceLevel'] = struct.unpack(str(records) + "B", buffer[ptr:(ptr + records)])
+        ptr += records
+
+        # The padding data is not encoded, so we just generate 0's for it here.
+        dg['padding'] = list(np.zeros(shape=len(dg['soundingIndex'])).astype(int))
+        
+        dg['rangeFactor'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['qualityFactor'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['detectionUncertaintyVer_m'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['detectionUncertaintyHor_m'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['detectionWindowLength_sec'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['echoLength_sec'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+
+        dg['WCBeamNumb'] = struct.unpack(str(records) + "H", buffer[ptr:(ptr + (records * 2))])
+        ptr += (records * 2)    
+        dg['WCrange_samples'] = struct.unpack(str(records) + "H", buffer[ptr:(ptr + (records * 2))])
+        ptr += (records * 2)    
+
+        dg['WCNomBeamAngleAcross_deg'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        
+        # meanAbsCoeff_dbPerkm is a single value for each transmit sector.
+        # And we've only encodeied one for each as ushorts in 0.01 dB. 
+        # So we extract these.
+        Nsectors = len(np.unique(dg['txSectorNumb']))
+        values = np.array(struct.unpack(str(Nsectors) + "H", buffer[ptr:(ptr + (Nsectors *2))])) / 100.0
+        ptr += (Nsectors *2)
+        # Then assign them to each sector. 
+        tmp = np.zeros(shape=len(dg['soundingIndex']))
+        for sectoridx in np.unique(dg['txSectorNumb']):  
+            tmp[dg['txSectorNumb']==sectoridx] = values[sectoridx]
+        dg['meanAbsCoeff_dbPerkm'] = tmp.tolist()
+
+        dg['reflectivity1_dB'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        # Reset values for no-detect values that were modified to
+        # improve compression.
+        dg['reflectivity1_dB'] = [-100. if x == 0 else y 
+                            for x, y in 
+                            zip(dg['detectionMethod'], dg['reflectivity1_dB'])]
+        
+        dg['reflectivity2_dB'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        # Reset values for no-detect values that were modified to
+        # improve compression. Note this makes a suble if inconsequential 
+        # change to the file, as the values in reflectivity2_dB for 
+        # failed detections are not -100. They are not uniform in value
+        # and so cannot be replaced exactly here. But since these
+        # are for non-detects it should not matter to anyone. (I hope)
+        dg['reflectivity2_dB'] = [-100. if x == 0 else y 
+                            for x, y in 
+                            zip(dg['detectionMethod'], dg['reflectivity2_dB'])]
+        
+        dg['receiverSensitivityApplied_dB'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['sourceLevelApplied_dB'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['BScalibration_dB'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['TVG_dB'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['beamAngleReRx_deg'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['beamAngleCorrection_deg'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['twoWayTravelTime_sec'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['twoWayTravelTimeCorrection_sec'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['deltaLatitude_deg'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['deltaLongitude_deg'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['z_reRefPoint_m'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['y_reRefPoint_m'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['x_reRefPoint_m'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+        dg['beamIncAngleAdj_deg'], bytesDecoded = self.decodeUintXintoArray(buffer[ptr:])
+        ptr += bytesDecoded
+
+
+        #dg['realTimeCleanInfo'] = struct.unpack(str(records) + "H", buffer[ptr:(ptr + (records * 2))])
+        #ptr += (records * 2)
+        dg['realTimeCleanInfo'] = list(np.zeros(shape=len(dg['soundingIndex'])).astype(int))
+        dg['SIstartRange_samples'] = struct.unpack(str(records) + "H", buffer[ptr:(ptr + (records * 2))])
+        ptr += (records * 2)
+        dg['SIcentreSample'] = struct.unpack(str(records) + "H", buffer[ptr:(ptr + (records * 2))])
+        ptr += (records * 2)
+        dg['SInumSamples'] = struct.unpack(str(records) + "H", buffer[ptr:(ptr + (records * 2))])
+        ptr += (records * 2)
+
+        return dg
+
+    def write_EncodedCompressedSoundings(self, buffer):
+        ''' Write MRZ soundings records.
+
+        write_EMdgmMRZ_sounding(FID, dg['sounding'])
+
+        '''
+        self.FID.write(struct.pack('I',len(buffer)))
+        self.FID.write(buffer)
+        return
+    
+    def encodeAndCompressImagery(self, dg):
+        ''' A method to encode and compress the imagery data.'''
+        buffer = self.encodeArrayIntoUintX(np.array(dg['SIsample_desidB']),.1)
+        return bz2.compress(buffer)
+    
+    def decodeAndDecompresssImagery(self,buffer,Nseabedimage_samples):
+        format_to_unpack = str(Nseabedimage_samples) + "h"
+        return self.decodeUintXintoArray(bz2.decompress(buffer)) 
+
+    def write_EncodedCompressedImagery(self, buffer):
+        ''' A method to write the encoded compressed imagery'''
+        self.FID.write(struct.pack("I",len(buffer)))
+        self.FID.write(buffer)
+
+    def write_EMdgmCZ0(self, dg):
+        ''' A method to write an MRZ datagram back to disk, but omitting the imagery data.'''
+
+        # First we need to see how much space the imagery data will take. 
+        # And set the number of imagery samples per sounding field to zero. 
+        Nseabedimage_samples = 0
+        for record in range(dg['rxInfo']['numExtraDetections'] +
+                                  dg['rxInfo']['numSoundingsMaxMain']):
+            Nseabedimage_samples += dg['sounding']['SInumSamples'][record]
+            #dg['sounding']['SInumSamples'][record] = 0
+        imageryBytes = Nseabedimage_samples * 2
+
+        # Now we need to reset the total packet size.
+        #dg['header']['numBytesDgm'] -= imageryBytes
+
+        # And we need to create a new MRZ packet type to hold compressed data.
+        dg['header']['dgmType'] = b'#CZ0'
+
+        imageryBuffer = self.encodeAndCompressImagery(dg)
+
+        soundingsBuffer = self.encodeAndCompressSoundings(dg['sounding'])
+
+        # Reduce the datagram size by the difference in size of the 
+        # original and compressed sounding data, including the size
+        # of teh soundings buffer which is written as a 4-type int.
+        Nsoundings = (dg['rxInfo']['numExtraDetections'] +
+                    dg['rxInfo']['numSoundingsMaxMain'])
+        dg['header']['numBytesDgm'] -= (Nsoundings * 120 
+                                - (len(soundingsBuffer)+4))
+
+        # Reduce the datagram size by the difference in size of the
+        # original and encoded, compressed imagery data.
+        dg['header']['numBytesDgm'] -= (imageryBytes - (len(imageryBuffer) + 4))
+
+        # Now write the packet, just leave out the imagery 
+        # data and set Nsamples  to 0.
+        self.write_EMdgmHeader(dg['header'])
+        self.write_EMdgmMpartition(dg['partition'])
+        self.write_EMdgmMbody(dg['cmnPart'])
+        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'])
+
+        for sector in range(dg['pingInfo']['numTxSectors']):
+            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'],sector)
+
+        self.write_EMdgmMRZ_rxInfo(dg['rxInfo'])
+
+        for detclass in range(dg['rxInfo']['numExtraDetectionClasses']):
+                self.write_EMdgmMRZ_extraDetClassInfo(dg['extraDetClassInfo'],detclass)
+
+        self.write_EncodedCompressedSoundings(soundingsBuffer)
+        self.write_EncodedCompressedImagery(imageryBuffer)
+ 
+        self.FID.write(struct.pack("I",dg['header']['numBytesDgm']))
+
+    def write_EMdgmCZ1(self, dg):
+        ''' A method to write a new datagram compressing teh soundings and 
+        omitting the imagery data.'''
+
+        # First we need to see how much space the imagery data will take. 
+        # And set the number of imagery samples per sounding field to zero. 
+        Nseabedimage_samples = 0
+        for record in range(dg['rxInfo']['numExtraDetections'] +
+                                  dg['rxInfo']['numSoundingsMaxMain']):
+            Nseabedimage_samples += dg['sounding']['SInumSamples'][record]
+            dg['sounding']['SInumSamples'][record] = 0
+        imageryBytes = Nseabedimage_samples * 2
+
+        # Now we need to reset the total packet size.
+        dg['header']['numBytesDgm'] -= imageryBytes
+
+        # And we need to create a new MRZ packet type to hold compressed data.
+        dg['header']['dgmType'] = b'#CZ1'
+
+        soundingsBuffer = self.encodeAndCompressSoundings(dg['sounding'])
+
+        # Reduce the datagram size by the difference in size of the 
+        # original and compressed sounding data, including the size
+        # of the soundings buffer which is also written, as a 4-type int.
+        Nsoundings = (dg['rxInfo']['numExtraDetections'] +
+                    dg['rxInfo']['numSoundingsMaxMain'])
+        dg['header']['numBytesDgm'] -= (Nsoundings * 120 
+                                - (len(soundingsBuffer)+4))
+
+
+        # Now write the packet, just leave out the imagery 
+        # data and set Nsamples  to 0.
+        self.write_EMdgmHeader(dg['header'])
+        self.write_EMdgmMpartition(dg['partition'])
+        self.write_EMdgmMbody(dg['cmnPart'])
+        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'])
+
+        for sector in range(dg['pingInfo']['numTxSectors']):
+            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'],sector)
+
+        self.write_EMdgmMRZ_rxInfo(dg['rxInfo'])
+
+        for detclass in range(dg['rxInfo']['numExtraDetectionClasses']):
+                self.write_EMdgmMRZ_extraDetClassInfo(dg['extraDetClassInfo'],detclass)
+
+        self.write_EncodedCompressedSoundings(soundingsBuffer)
+        #write_EncodedCompressedImagery(FID,imageryBuffer)
+        # Don't write the imagery data. 
+        #write_EMdgmMRZ_seabedImagery(FID, dg, Nseabedimage_samples)
+
+        self.FID.write(struct.pack("I",dg['header']['numBytesDgm'])) 
+        
+    def read_EMdgmCZ0(self):
+        """
+        The #CR0 datagram is a custom datagram in which the sounding data 
+        and imagery data are encoded and compressed.
+        
+        The format of this datagram will evolve as better methods are devised. 
+        Therefore, files compressed in this way should only be used in a 
+        temporary way for passing data over telemetry links. Files left 
+        compressed are in danger of being unreadable in future releases.
+        
+        """
+
+        start = self.FID.tell()
+
+        dg = {}
+        dg['header'] = self.read_EMdgmHeader()
+        dg['partition'] = self.read_EMdgmMpartition()
+        dg['cmnPart'] = self.read_EMdgmMbody()
+        dg['pingInfo'] = self.read_EMdgmMRZ_pingInfo()
+
+        # Read TX sector info for each sector
+        txSectorInfo = []
+        for sector in range(dg['pingInfo']['numTxSectors']):
+            txSectorInfo.append(self.read_EMdgmMRZ_txSectorInfo())
+        dg['txSectorInfo'] = self.listofdicts2dictoflists(txSectorInfo)
+
+        # Read reInfo
+        dg['rxInfo'] = self.read_EMdgmMRZ_rxInfo()
+
+        # Read extra detect metadata if they exist.
+        extraDetClassInfo = []
+        for detclass in range(dg['rxInfo']['numExtraDetectionClasses']):
+            extraDetClassInfo.append(self.read_EMdgmMRZ_extraDetClassInfo())
+        dg['extraDetClassInfo'] = self.listofdicts2dictoflists(extraDetClassInfo)
+
+        # Read the sounding data.
+        Nseabedimage_samples = 0
+
+        soundingsBuffer = self.read_EncodedCompressedSoundingsBlock()
+
+        Nsoundings = (dg['rxInfo']['numExtraDetections'] +
+                            dg['rxInfo']['numSoundingsMaxMain'])
+        dg['sounding'] = self.expandAndDecodeSoundings(soundingsBuffer,
+                                                       Nsoundings)
+
+        for record in range(Nsoundings):
+            Nseabedimage_samples += dg['sounding']['SInumSamples'][record]
+
+        # Read the seabed imagery.
+        # Seabed image sample amplitude, in 0.1 dB. Actual number of
+        # seabed image samples (SIsample_desidB) to be found
+        # by summing parameter SInumSamples in struct EMdgmMRZ_sounding_def
+        # for all beams. Seabed image data are raw beam sample data 
+        # taken from the RX beams. The data samples are selected 
+        # based on the bottom detection ranges. First sample for 
+        # each beam is the one with the lowest range. The centre 
+        # sample from each beam is georeferenced (x, y, z data from 
+        # the detections). The BS corrections applied at the centre 
+        # sample are the same as used for reflectivity2_dB 
+        # (struct EMdgmMRZ_sounding_def).
+        imageryBuffer = self.read_EncodedCompressedImageryBlock()
+        dg['SIsample_desidB'], bytesDecoded = self.decodeAndDecompresssImagery(imageryBuffer,
+                                Nseabedimage_samples)
+        dg['SIsample_desidB'] = np.array(dg['SIsample_desidB'],dtype=int)
+        
+        # Increase the reported size of the packet by the increase
+        # in the size of the decoded soundings block. There are 120
+        # bytes per sounding. And the size of the soundings buffer 
+        # is also recorded, as a 4-byte int.
+        dg['header']['numBytesDgm'] += (Nsoundings * 120 - 
+                                       (len(soundingsBuffer) + 4))
+        # Same for compressed imagery.
+        dg['header']['numBytesDgm'] += (Nseabedimage_samples * 2 - 
+                                       (len(imageryBuffer) + 4))
+        
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
+
+        return dg
+    
+    def read_EMdgmCZ1(self):
+        """
+        The #CR1 datagram is a custom datagram in which the sounding data 
+        are encoded and compressed and imagery is omitted.
+        
+        The format of this datagram will evolve as better methods are devised. 
+        Therefore, files compressed in this way should only be used in a 
+        temporary way for passing data over telemetry links. Files left 
+        compressed are in danger of being unreadable in future releases.
+        
+        """
+
+        start = self.FID.tell()
+
+        dg = {}
+        dg['header'] = self.read_EMdgmHeader()
+        dg['partition'] = self.read_EMdgmMpartition()
+        dg['cmnPart'] = self.read_EMdgmMbody()
+        dg['pingInfo'] = self.read_EMdgmMRZ_pingInfo()
+
+        # Read TX sector info for each sector
+        txSectorInfo = []
+        for sector in range(dg['pingInfo']['numTxSectors']):
+            txSectorInfo.append(self.read_EMdgmMRZ_txSectorInfo())
+        dg['txSectorInfo'] = self.listofdicts2dictoflists(txSectorInfo)
+
+        # Read reInfo
+        dg['rxInfo'] = self.read_EMdgmMRZ_rxInfo()
+
+        # Read extra detect metadata if they exist.
+        extraDetClassInfo = []
+        for detclass in range(dg['rxInfo']['numExtraDetectionClasses']):
+            extraDetClassInfo.append(self.read_EMdgmMRZ_extraDetClassInfo())
+        dg['extraDetClassInfo'] = self.listofdicts2dictoflists(extraDetClassInfo)
+
+        # Read the sounding data.
+        Nseabedimage_samples = 0
+
+        soundingsBuffer = self.read_EncodedCompressedSoundingsBlock()
+        Nsoundings = (dg['rxInfo']['numExtraDetections'] +
+                            dg['rxInfo']['numSoundingsMaxMain'])
+        dg['sounding'] = self.expandAndDecodeSoundings(soundingsBuffer, Nsoundings)
+
+        # Increase the reported size of the packet by the increase
+        # in the size of the decoded soundings block. There are 120
+        # bytes per sounding. And the size of the soundings buffer 
+        # is also recorded, as a 4-byte int.
+        dg['header']['numBytesDgm'] += (Nsoundings * 120 - 
+                                       (len(soundingsBuffer) + 4))
+        # Skip the imagery data...
+    
+        # Seek to end of the packet.
+        self.FID.seek(start + dg['header']['numBytesDgm'], 0)
+
+        return dg
+    
+    def read_EncodedCompressedSoundingsBlock(self):
+        ''' Read the compressed soundings block'''
+        bytestoread = struct.unpack('I',self.FID.read(4))
+        buffer = self.FID.read(bytestoread[0])
+        return buffer
+        
+    def read_EncodedCompressedImageryBlock(self):
+        ''' Read the compressed imagery block.'''
+        bytestoread = struct.unpack('I',self.FID.read(4))
+        buffer = self.FID.read(bytestoread[0])
+        return buffer
+
+
+
+
+
+    
+    ###########################################################
     # Utilities
     ###########################################################
 
@@ -1916,9 +3012,25 @@ class kmall():
             filetoopen = self.filename
 
         if self.verbose >= 1:
-            print("Opening: %s" % filetoopen)
+            print("Opening: %s to read" % filetoopen)
 
         self.FID = open(filetoopen, "rb")
+        
+    def OpenFiletoWrite(self, inputfilename=None):
+        """ Open a KMALL data file for reading."""
+        if self.filename is None:
+            if inputfilename is None:
+                print("No file name specified")
+                sys.exit(1)
+            else:
+                filetoopen = inputfilename
+        else:
+            filetoopen = self.filename
+
+        if self.verbose >= 1:
+            print("Opening: %s to write" % filetoopen)
+
+        self.FID = open(filetoopen, "wb")
 
     def closeFile(self):
         """ Close a file."""
@@ -1929,12 +3041,15 @@ class kmall():
         """ A utility function to print the fields of a parsed datagram. """
         print("\n")
         for k, v in dg.items():
-            print("%s:\t\t\t%s" % (k, str(v)))
+            print("%s:\t\t\t%s\n" % (k, str(v)))
 
     def index_file(self):
         """ Index a KMALL file - message type, time, size, byte offset. """
 
         if self.FID is None:
+            self.OpenFiletoRead()
+        else:
+            self.closeFile()         # forces flushing.
             self.OpenFiletoRead()
 
         # Get size of the file.
@@ -2013,10 +3128,22 @@ class kmall():
             print(self.Index)
 
     def extract_nav(self):
-        pass
+        ''' Extract navigation data. 
+        Only works when data is interpreted into the KMbinary record at the 
+        moment.'''
+        self.extract_attitude()
 
     def extract_attitude(self):
-        ''' Extract all raw attitude data from data file into self.att'''
+        ''' Extract all raw attitude data from data file into self.att
+
+        FIX: This method needs to be much more robust. It currently only
+        handles our situation in which we are providing POS/MV Group 102
+        messages, and these, it appears, are being interpreted into the
+        KMbinary datagram. But it does not handle 1) multiple navigation
+        inputs, 2) multiple navigation input types, 3) there are no checks to
+        see that the data is valid. etc.
+
+        '''
 
         if self.Index is None:
             self.index_file()
@@ -2025,23 +3152,23 @@ class kmall():
             self.OpenFiletoRead()
 
         # Get offsets for 'SKM' attitude datagrams.
-        SKMOffsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#SKM'"]
+        SKMOffsets = [x for x, y in zip(self.msgoffset, self.msgtype)
+                      if y == "b'#SKM'"]
 
-        dg = list()
+        attitudeDatagrams = list()
         for offset in SKMOffsets:
             self.FID.seek(offset, 0)
-            dg.append(self.read_EMdgmSKM())
+            dg = self.read_EMdgmSKM()
+            attitudeDatagrams.append(dg['sample']['KMdefault'])
 
         # Convert list of dictionaries to dictionary of lists.
-        self.att = self.listofdicts2dictoflists(dg)
-        # for k,v in dg[0].items():
-        #    self.att[k] = [x for sublist in dg for x in sublist[k]]
+        self.att = self.listofdicts2dictoflists(attitudeDatagrams)
 
         self.FID.seek(0, 0)
         return
 
     def listofdicts2dictoflists(self, listofdicts):
-        """ A utility function to convert a list of dicts to a dict of lists."""
+        """ A utility  to convert a list of dicts to a dict of lists."""
         dg = {}
 
         # This is done in two steps, handling both dictionary items that are
@@ -2055,8 +3182,11 @@ class kmall():
             return None
 
         for k, v in listofdicts[0].items():
-            dg[k] = [item for dictitem in listofdicts if isinstance(dictitem[k], list) for item in dictitem[k]]
-            scalartmp = [dictitem[k] for dictitem in listofdicts if not isinstance(dictitem[k], list)]
+            dg[k] = [item for dictitem in listofdicts
+                     if isinstance(dictitem[k], list)
+                     for item in dictitem[k]]
+            scalartmp = [dictitem[k] for dictitem in listofdicts
+                         if not isinstance(dictitem[k], list)]
             if len(dg[k]) == 0:
                 dg[k] = scalartmp
 
@@ -2212,14 +3342,27 @@ class kmall():
 
 if __name__ == '__main__':
     # Handle input arguments
-    parser = argparse.ArgumentParser(description="A python script (and class)"
-                                                 "for parsing Kongsberg KMALL data files.")
-    parser.add_argument('-f', action='store', dest='kmall_filename',
+    parser = argparse.ArgumentParser(description="A python script (and class) "
+                                                 "for parsing Kongsberg KMALL "
+                                                 "data files.")
+    parser.add_argument('-f', action='store', dest ='kmall_filename',
                         help="The path and filename to parse.")
-    parser.add_argument('-d', action='store', dest='kmall_directory',
+    parser.add_argument('-d', action='store', dest ='kmall_directory',
                         help="A directory containing kmall data files to parse.")
-    parser.add_argument('-V', action='store_true', dest='verify',
+    parser.add_argument('-V', action='store_true', dest ='verify',
                         default=False, help="Perform series of checks to verify the kmall file.")
+    parser.add_argument('-z', action='store_true', dest = 'compress',
+                       default = False, help="Create a compressed (somewhat lossy) version of the file. See -l")
+    parser.add_argument('-l', action='store', type = int, dest = 'compressionLevel',
+                       default = 0, help=("Set the compression level (Default: 0).\n" +
+                       "\t 0: Somewhat lossy compression of soundings and imagery data.(Default)\n" +
+                       "\t 1: Somewhat lossy compression of soundings with imagery omitted."))
+    parser.add_argument('-Z', action='store_true', dest = 'decompress',
+                       default = False, help=("Decompress a file compressed with this library. " + 
+                                             "Files must end in .Lz, where L is an integer indicating " +
+                                             "the compression level (set by -l when compresssing)"))
+
+
     parser.add_argument('-v', action='count', dest='verbose', default=0,
                         help="Increasingly verbose output (e.g. -v -vv -vvv),"
                              "for debugging use -vvv")
@@ -2230,10 +3373,22 @@ if __name__ == '__main__':
     kmall_filename = args.kmall_filename
     kmall_directory = args.kmall_directory
     verify = args.verify
+    compress = args.compress
+    decompress = args.decompress
+    compressionLevel = args.compressionLevel
+    
+    validCompressionLevels = [0, 1]
+    if compressionLevel not in validCompressionLevels:
+        print("Error: Compression level may be one of " + str(validCompressionLevels))
+        sys.exit()
+     
+    suffix = "kmall"
+    if decompress:
+        suffix
 
     if kmall_directory:
         filestoprocess = []
-        suffix = "kmall"
+        
         if verbose >= 3:
             print("directory: " + directory)
 
@@ -2259,10 +3414,12 @@ if __name__ == '__main__':
         if (K.verbose >= 1):
             print("Processing file: %s" % K.filename)
 
-        pingcheckdata = []
-        navcheckdata = []
         # Index file (check for index)
         K.index_file()
+        
+        ## Do packet verification if requested.
+        pingcheckdata = []
+        navcheckdata = []
         if verify:
             K.report_packet_types()
             pingcheckdata.append([x for x in K.check_ping_count()])
@@ -2278,24 +3435,147 @@ if __name__ == '__main__':
             # print("Navigation Gaps min: %0.3f, max: %0.3f, mean: %0.3f (%0.3fHz)" %
             #      (np.min(np.abs(dt_att)),np.max(dt_att),np.mean(dt_att),1.0/np.mean(dt_att)))
             # print("Navigation Gaps >= 1s: %d" % sum(dt_att >= 1.0))
-    print("Packet statistics:")
+            print("Packet statistics:")
 
-    # Print column headers
-    # print('%s' % "\t".join(['File','Npings','NpingsMissing','NMissingMRZ'] +
-    #                         ['Nav Min Time Gap','Nav Max Time Gap', 'Nav Mean Time Gap','Nav Mean Freq','Nav N Gaps >1s']))
+            # Print column headers
+            # print('%s' % "\t".join(['File','Npings','NpingsMissing','NMissingMRZ'] +
+            #                         ['Nav Min Time Gap','Nav Max Time Gap', 'Nav Mean Time Gap','Nav Mean Freq','Nav N Gaps >1s']))
 
-    # Print columns
-    # for x,y in zip(pingcheckdata,navcheckdata):
-    #    row = x+y
-    #    #print(row)
-    #    print("\t".join([str(x) for x in row]))
+            # Print columns
+            # for x,y in zip(pingcheckdata,navcheckdata):
+            #    row = x+y
+            #    #print(row)
+            #    print("\t".join([str(x) for x in row]))
 
-    # Create DataFrame to make printing easier.
-    DataCheck = pd.DataFrame([x + y for x, y in zip(pingcheckdata, navcheckdata)], columns=
-    ['File', 'Npings', 'NpingsMissing', 'NMissingMRZ'] +
-    ['NavMinTimeGap', 'NavMaxTimeGap', 'NavMeanTimeGap', 'NavMeanFreq', 'NavNGaps>1s'])
-    # K.navDataCheck = pd.DataFrame(navcheckdata,columns=['Min Time Gap','Max Time Gap', 'Mean Time Gap','Mean Freq','N Gaps >1s'])
-    pd.set_option('display.max_columns', 30)
-    pd.set_option('display.expand_frame_repr', False)
-    print(DataCheck)
-    # print(DataCheck)
+            # Create DataFrame to make printing easier.
+            DataCheck = pd.DataFrame([x + y for x, y in zip(pingcheckdata, navcheckdata)], columns=
+            ['File', 'Npings', 'NpingsMissing', 'NMissingMRZ'] +
+            ['NavMinTimeGap', 'NavMaxTimeGap', 'NavMeanTimeGap', 'NavMeanFreq', 'NavNGaps>1s'])
+            # K.navDataCheck = pd.DataFrame(navcheckdata,columns=['Min Time Gap','Max Time Gap', 'Mean Time Gap','Mean Freq','N Gaps >1s'])
+            pd.set_option('display.max_columns', 30)
+            pd.set_option('display.expand_frame_repr', False)
+            print(DataCheck)
+
+        ## Do compression if desired, at the desired level.
+        if compress:
+            
+            if compressionLevel == 0:
+                
+                print("Compressing soundings and imagery.")
+                compressedFilename = K.filename + ".0z"
+                
+                # Modify filename if the file already exists
+                idx = 1
+                while os.path.exists(compressedFilename):
+                    compressedFilename = ((K.filename + "_" + "%02d.0z") % idx)
+                    idx += 1
+                                    
+                T = kmall(compressedFilename)
+                K.index_file()
+                T.OpenFiletoWrite()
+
+                for offset, size, mtype in zip(K.Index['ByteOffset'],
+                                               K.Index['MessageSize'],
+                                               K.Index['MessageType']):
+                    K.FID.seek(offset,0)
+                    if mtype == "b'#MRZ'":
+                        dg = K.read_EMdgmMRZ()
+                        T.write_EMdgmCZ0(dg)    
+                    else:
+                        buffer = K.FID.read(size)
+                        T.FID.write(buffer)
+
+                K.closeFile()
+                T.closeFile()
+            
+            if compressionLevel == 1:
+                
+                print("Compressing soundings, omitting imagery.")
+                compressedFilename = K.filename + ".1z"
+                
+                # Modify filename if the file already exists
+                idx = 1
+                while os.path.exists(compressedFilename):
+                    compressedFilename = compressedFilename + "_" + str(idx)
+
+                T = kmall(compressedFilename)
+                K.index_file()
+                T.OpenFiletoWrite()
+
+                for offset, size, mtype in zip(K.Index['ByteOffset'],
+                                               K.Index['MessageSize'],
+                                               K.Index['MessageType']):
+                    K.FID.seek(offset,0)
+                    if mtype == "b'#MRZ'":
+                        dg = K.read_EMdgmMRZ()
+                        T.write_EMdgmCZ1(dg)    
+                    else:
+                        buffer = K.FID.read(size)
+                        T.FID.write(buffer)
+
+                K.closeFile()
+                T.closeFile()
+        
+        # Decompress the file is requested.
+        if decompress:
+        
+            # Discern the compression level and base filename.
+            regexp = '(?P<basename>.*\.kmall)\.(?P<level>\d+)z'
+            tokens = re.search(regexp,K.filename)
+            if tokens is None:
+                print("Could not discern compression level.")
+                print("Expecting xxxxx.kmall.\d+.z, where \d+ is 1 or more")
+                print("integers indicating the compression level.")
+                sys.exit()
+    
+            fileBasename = tokens['basename']
+            compressionLevel = tokens['level']
+
+            # Give some status.
+            if compressionLevel == "0":
+                print("Decompressing soundings and imagery.(Level: 0)")
+            elif compressionLevel == "1":
+                print("Decompessing soundings, imagery was omitted in this format. (Level: 1)")
+            
+            decompressedFilename = fileBasename
+            # Check to see if decompressed filename exists and modify if necessary.
+            idx = 1
+            while os.path.exists(decompressedFilename):
+                decompressedFilename = ((fileBasename[:-6] + 
+                                        "_" + "%02d" + '.kmall') % idx)
+                idx += 1
+              
+            if verbose >= 1:
+                print("Decompressing to: %s" % decompressedFilename)
+                print("Decompressing from Level: %s" % compressionLevel)
+                
+            # Create kmall object for decompressed file and open it.
+            T = kmall(filename=decompressedFilename)
+            T.OpenFiletoWrite()
+        
+            # Loop through the file, decompressing datagrams
+            # when necessary and just writing them when not.
+            for offset, size, mtype in zip(K.Index['ByteOffset'],
+                                            K.Index['MessageSize'],
+                                            K.Index['MessageType']):
+                K.FID.seek(offset,0)
+                if compressionLevel == "0":
+
+                    if mtype == "b'#CZ0'":
+                        dg = K.read_EMdgmCZ0()
+                        T.write_EMdgmMRZ(dg)    
+                    else:
+                        buffer = K.FID.read(size)
+                        T.FID.write(buffer)
+
+                if compressionLevel == "1":
+
+                    if mtype == "b'#CZ1'":
+                        dg = K.read_EMdgmCZ1()
+                        T.write_EMdgmMRZ(dg)    
+                    else:
+                        buffer = K.FID.read(size)
+                        T.FID.write(buffer)
+
+            T.closeFile()
+            K.closeFile()
