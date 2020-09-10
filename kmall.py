@@ -27,10 +27,7 @@ class kmall():
         self.filename = filename
         self.FID = None
         self.file_size = None
-        self.Index = pd.DataFrame({'Time': [np.nan],
-                                   'ByteOffset': [np.nan],
-                                   'MessageSize': [np.nan],
-                                   'MessageType': ['test']})
+        self.Index = None
 
         self.pingDataCheck = None
         self.navDataCheck = None
