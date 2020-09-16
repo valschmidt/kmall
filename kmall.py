@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+`#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """
@@ -18,7 +18,7 @@ import copy
 from pyproj import Proj
 from scipy import stats
 
-recs_categories = {'SKM': ['header.dgtime', 'sample.KMdefault.roll_deg', 'sample.KMdefault.pitch_deg',
+recs_categories = {'SKM': ['sample.KMdefault.dgtime', 'sample.KMdefault.roll_deg', 'sample.KMdefault.pitch_deg',
                            'sample.KMdefault.heave_m', 'sample.KMdefault.heading_deg',
                            'sample.KMdefault.latitude_deg', 'sample.KMdefault.longitude_deg',
                            'sample.KMdefault.ellipsoidHeight_m'],
@@ -32,8 +32,8 @@ recs_categories = {'SKM': ['header.dgtime', 'sample.KMdefault.roll_deg', 'sample
                            'pingInfo.modeAndStabilisation', 'pingInfo.pulseForm', 'pingInfo.depthMode'],
                    'IOP': ['header.dgtime', 'runtime_txt'],
                    'SVP': ['time_sec', 'sensorData.depth_m', 'sensorData.soundVelocity_mPerSec']}
-recs_categories_translator = {'SKM': {'header.dgtime': [['attitude', 'time'], ['navigation', 'time']],
-                                      'sample.KMdefault.roll_deg': [['attitude', 'time']],
+recs_categories_translator = {'SKM': {'sample.KMdefault.dgtime': [['attitude', 'time'], ['navigation', 'time']],
+                                      'sample.KMdefault.roll_deg': [['attitude', 'roll']],
                                       'sample.KMdefault.pitch_deg': [['attitude', 'pitch']],
                                       'sample.KMdefault.heave_m': [['attitude', 'heave']],
                                       'sample.KMdefault.heading_deg': [['navigation', 'heading']],
@@ -3549,6 +3549,8 @@ class kmall():
                         recs_to_read[rec][dgram] = self.translate_mode_two(np.array(recs_to_read[rec][dgram]))
                     else:
                         recs_to_read[rec][dgram] = np.array(recs_to_read[rec][dgram])
+                elif rec in ['navigation', 'attitude']:  # these recs have time blocks of data in them, need to be concatenated
+                    recs_to_read[rec][dgram] = np.concatenate(recs_to_read[rec][dgram])
                 else:
                     recs_to_read[rec][dgram] = np.array(recs_to_read[rec][dgram])
         return recs_to_read
@@ -3605,9 +3607,10 @@ class kmall():
                         if translated[0] not in recs_to_read:
                             recs_to_read[translated[0]] = {}
                         if translated[1] not in recs_to_read[translated[0]]:
-                            recs_to_read[translated[0]][translated[1]] = val
+                            recs_to_read[translated[0]][translated[1]] = copy.copy(val)
                         else:
                             recs_to_read[translated[0]][translated[1]].extend(val)
+
         recs_to_read = self._finalize_records(recs_to_read)
         return recs_to_read
 
