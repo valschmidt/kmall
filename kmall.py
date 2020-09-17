@@ -912,7 +912,7 @@ class kmall():
 
         return dg
 
-    def read_EMdgmMWCrxBeamPhase1(self, numBeams, numSampleData):
+    def read_EMdgmMWCrxBeamPhase1(self, numSampleData):
         """
         Read #MWC - Beam sample phase info, specific for each beam and water column sample.
         numBeams * numSampleData = (Nrx * Ns) entries. Only added to datagram if phaseFlag = 1.
@@ -921,10 +921,10 @@ class kmall():
         """
         # LMD added, untested.
         # TODO: Test with water column data, phaseFlag = 1 to complete/test this function.
-        print("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase1.")
+        # print("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase1.")
 
         dg = {}
-        format_to_unpack = str(numBeams * numSampleData) + "b"
+        format_to_unpack = str(numSampleData) + "b"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Rx beam phase in 180/128 degree resolution.
@@ -932,7 +932,7 @@ class kmall():
 
         return dg
 
-    def read_EMdgmMWCrxBeamPhase2(self, numBeams, numSampleData):
+    def read_EMdgmMWCrxBeamPhase2(self, numSampleData):
         """
         Read #MWC - Beam sample phase info, specific for each beam and water column sample.
         numBeams * numSampleData = (Nrx * Ns) entries. Only added to datagram if phaseFlag = 2.
@@ -941,10 +941,10 @@ class kmall():
         """
         # LMD added, untested.
         # TODO: Test with water column data, phaseFlag = 2 to complete/test this function.
-        print("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase2.")
+        # print("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase2.")
 
         dg = {}
-        format_to_unpack = str(numBeams * numSampleData) + "h"
+        format_to_unpack = str(numSampleData) + "h"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Rx beam phase in 0.01 degree resolution.
@@ -1001,13 +1001,11 @@ class kmall():
 
             elif dg['rxInfo']['phaseFlag'] == 1:
                 # TODO: Test with water column data, phaseFlag = 1 to complete/test this function.
-                rxPhaseInfo.append(self.read_EMdgmMWCrxBeamPhase1(dg['rxInfo']['numBeams'],
-                                                                  rxBeamData[idx]['numSampleData']))
+                rxPhaseInfo.append(self.read_EMdgmMWCrxBeamPhase1(rxBeamData[idx]['numSampleData']))
 
             elif dg['rxInfo']['phaseFlag'] == 2:
                 # TODO: Test with water column data, phaseFlag = 2 to complete/test this function.
-                rxPhaseInfo.append(self.read_EMdgmMWCrxBeamPhase1(dg['rxInfo']['numBeams'],
-                                                                  rxBeamData[idx]['numSampleData']))
+                rxPhaseInfo.append(self.read_EMdgmMWCrxBeamPhase2(rxBeamData[idx]['numSampleData']))
 
             else:
                 print("ERROR: phaseFlag error in read_EMdgmMWC function.")
