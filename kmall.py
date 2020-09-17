@@ -1766,7 +1766,7 @@ class kmall():
 
         return dg
 
-    def read_EMdgmCPOdataBlock(self):
+    def read_EMdgmCPOdataBlock(self, length):
         """
         Read #CPO - Compatibility sensor position compatibility data block. Data from active sensor is referenced to
         position at antenna footprint at water level. Data is corrected for motion ( roll and pitch only) if enabled
@@ -1778,7 +1778,7 @@ class kmall():
         # LMD tested.
 
         dg = {}
-        format_to_unpack = "2I1f"
+        format_to_unpack = "2I1f2d3f"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         dg['timeFromSensor_sec'] = fields[0]
@@ -1786,21 +1786,21 @@ class kmall():
         dg['datetime'] = datetime.datetime.utcfromtimestamp(dg['timeFromSensor_sec']
                                                             + dg['timeFromSensor_nanosec'] / 1.0E9)
         dg['posFixQuality'] = fields[2]
+        dg['correctedLat_deg'] = fields[3]
+        dg['correctedLong_deg'] = fields[4]
+        dg['speedOverGround_mPerSec'] = fields[5]
+        dg['courseOverGround_deg'] = fields[6]
+        dg['ellipsoidHeightReRefPoint_m'] = fields[7]
 
         # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
-        format_to_unpack = "2d3f250s"
+        pos_data_len = length - struct.Struct(format_to_unpack).size
+        format_to_unpack = "%ds" % pos_data_len
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
-        dg['correctedLat_deg'] = fields[0]
-        dg['correctedLong_deg'] = fields[1]
-        dg['speedOverGround_mPerSec'] = fields[2]
-        dg['courseOverGround_deg'] = fields[3]
-        dg['ellipsoidHeightReRefPoint_m'] = fields[4]
 
         # TODO: This is an array of(max?) length MAX_CPO_DATALENGTH; do something else here?
         # TODO: Get MAX_CPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
         # TODO: This works for now, but maybe there is a smarter way?
-        tmp = fields[5]
-        dg['posDataFromSensor'] = tmp[0:tmp.find(b'\r\n')]
+        dg['posDataFromSensor'] = fields[0]
 
         return dg
 
@@ -1819,7 +1819,10 @@ class kmall():
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
-        dg['sensorData'] = self.read_EMdgmCPOdataBlock()
+
+        ## Data block length is balance of datagram minus 4 for the confirmation packet length at end
+        data_block_len =  dg['header']['numBytesDgm'] - 4 -(self.FID.tell()-start)
+        dg['sensorData'] = self.read_EMdgmCPOdataBlock( data_block_len )
 
         # Seek to end of the packet.
         self.FID.seek(start + dg['header']['numBytesDgm'], 0)
