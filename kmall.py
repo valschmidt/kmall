@@ -32,11 +32,12 @@ recs_categories = {'SKM': ['sample.KMdefault.dgtime', 'sample.KMdefault.roll_deg
                            'pingInfo.modeAndStabilisation', 'pingInfo.pulseForm', 'pingInfo.depthMode'],
                    'IOP': ['header.dgtime', 'runtime_txt'],
                    'SVP': ['time_sec', 'sensorData.depth_m', 'sensorData.soundVelocity_mPerSec']}
+
 recs_categories_translator = {'SKM': {'sample.KMdefault.dgtime': [['attitude', 'time'], ['navigation', 'time']],
                                       'sample.KMdefault.roll_deg': [['attitude', 'roll']],
                                       'sample.KMdefault.pitch_deg': [['attitude', 'pitch']],
                                       'sample.KMdefault.heave_m': [['attitude', 'heave']],
-                                      'sample.KMdefault.heading_deg': [['navigation', 'heading']],
+                                      'sample.KMdefault.heading_deg': [['attitude', 'heading']],
                                       'sample.KMdefault.latitude_deg': [['navigation', 'latitude']],
                                       'sample.KMdefault.longitude_deg': [['navigation', 'longitude']],
                                       'sample.KMdefault.ellipsoidHeight_m': [['navigation', 'altitude']]},
@@ -44,7 +45,7 @@ recs_categories_translator = {'SKM': {'sample.KMdefault.dgtime': [['attitude', '
                                       'cmnPart.rxTransducerInd': [['ping', 'rxid']],
                                       'pingInfo.soundSpeedAtTxDepth_mPerSec': [['ping', 'soundspeed']],
                                       'pingInfo.numTxSectors': [['ping', 'ntx']],
-                                      'header.systemID': [['ping', 'systemid']],
+                                      'header.systemID': [['ping', 'serial_num']],
                                       'txSectorInfo.txSectorNumb': [['ping', 'txsectorid']],
                                       'txSectorInfo.tiltAngleReTx_deg': [['ping', 'tiltangle']],
                                       'txSectorInfo.sectorTransmitDelay_sec': [['ping', 'delay']],
@@ -52,17 +53,30 @@ recs_categories_translator = {'SKM': {'sample.KMdefault.dgtime': [['attitude', '
                                       'sounding.beamAngleReRx_deg': [['ping', 'beampointingangle']],
                                       'sounding.txSectorNumb': [['ping', 'txsector_beam']],
                                       'sounding.detectionType': [['ping', 'detectioninfo']],
-                                      'sounding.qualityFactor': [['ping', 'qualityfactor']],
+                                      'sounding.qualityFactor': [['ping', 'qualityfactor_percent']],
                                       'sounding.twoWayTravelTime_sec': [['ping', 'traveltime']],
-                                      'pingInfo.modeAndStabilisation': [['ping', 'yawandpitchstabilization']],
+                                      'pingInfo.modeAndStabilisation': [['ping', 'yawpitchstab']],
                                       'pingInfo.pulseForm': [['ping', 'mode']],
                                       'pingInfo.depthMode': [['ping', 'modetwo']]},
                               'IIP': {'header.dgtime': [['installation_params', 'time']],
-                                      'install_txt': [['installation_params', 'settings']]},
+                                      'install_txt': [['installation_params', 'installation_settings']]},
                               'IOP': {'header.dgtime': [['runtime_params', 'time']],
                                       'runtime_txt': [['runtime_params', 'runtime_settings']]},
                               'SVP': {'time_sec': [['profile', 'time']], 'sensorData.depth_m': [['profile', 'depth']],
                                       'sensorData.soundVelocity_mPerSec': [['profile', 'soundspeed']]}}
+
+recs_categories_result = {'attitude':  {'time': None, 'roll': None, 'pitch': None, 'heave': None, 'heading': None},
+                          'installation_params': {'time': None, 'serial_one': None, 'serial_two': None,
+                                                  'installation_settings': None},
+                          'ping': {'time': None, 'counter': None, 'rxid': None, 'soundspeed': None, 'ntx': None,
+                                   'serial_num': None, 'txsectorid': None, 'tiltangle': None, 'delay': None,
+                                   'frequency': None, 'beampointingangle': None, 'txsector_beam': None,
+                                   'detectioninfo': None, 'qualityfactor_percent': None, 'traveltime': None, 'mode': None,
+                                   'modetwo': None, 'yawpitchstab': None},
+                          'runtime_params': {'time': None, 'runtime_settings': None},
+                          'profile': {'time': None, 'depth': None, 'soundspeed': None},
+                          'navigation': {'time': None, 'latitude': None, 'longitude': None, 'altitude': None}}
+
 
 class kmall():
     """ A class for reading a Kongsberg KMALL data file. """
@@ -122,6 +136,7 @@ class kmall():
     def read_datagram(self):
         """
         Reads the datagram data and stores the data in self.datagram_data
+        Will always translate the installation parameters record (translate=True)
         
         To get the first record:
         
@@ -142,7 +157,10 @@ class kmall():
         
         """
         if self.read_method is not None:  # is None when decode fails or is at the end of file
-            self.datagram_data = getattr(self, self.read_method)()
+            if self.read_method in ['read_EMdgmIIP', 'read_EMdgmIOP']:
+                self.datagram_data = getattr(self, self.read_method)(translate=True)
+            else:
+                self.datagram_data = getattr(self, self.read_method)()
 
     def skip_datagram(self):
         """
@@ -211,9 +229,13 @@ class kmall():
 
         return dg
 
-    def read_EMdgmIIP(self):
+    def read_EMdgmIIP(self, translate=False):
         """
         Read #IIP - installation parameters and sensor format settings.
+
+        If translate is True, the returned install_txt will be a dict with human readable key: value pairs.
+        self.read_datagram will always use translate=True
+
         :return: A dictionary containging EMdgmIIP.
         """
         # LMD tested.
@@ -234,6 +256,9 @@ class kmall():
         # Installation settings as text format. Parameters separated by ; and lines separated by , delimiter.
         tmp = self.FID.read(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size)
         i_text = tmp.decode('UTF-8')
+
+        if translate:
+            i_text = self.translate_installation_parameters_todict(i_text)
         dg['install_txt'] = i_text
 
         # remainder = total bytes - (header bytes + data bytes)
@@ -244,9 +269,13 @@ class kmall():
 
         return dg
 
-    def read_EMdgmIOP(self):
+    def read_EMdgmIOP(self, translate=False):
         """
         Read #IOP - runtime parameters, exactly as chosen by operator in K-Controller/SIS menus.
+
+        If translate is True, the returned runtime_txt will be a dict with human readable key: value pairs.
+        self.read_datagram will always use translate=True
+
         :return: A dictionary containing EMdgmIOP.
         """
         # LMD tested.
@@ -269,6 +298,8 @@ class kmall():
         tmp = self.FID.read(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size)
         rt_text = tmp.decode('UTF-8')
         # print(rt_text)
+        if translate:
+            rt_text = self.translate_runtime_parameters_todict(rt_text)
         dg['runtime_txt'] = rt_text
         
         # remainder = total bytes - (header bytes + data bytes)
@@ -3452,7 +3483,9 @@ class kmall():
         # we search for the pound sign as a first step, use this compiled expression for the second tier, ensuring
         # the pound sign actually indicates the record identifier
 
-        search_exp = b'#[A-Z][A-Z][A-Z0-1]'
+        # went through and found the possible letters for all the records we care about
+        # have to be explicit, as there are datagrams within datagrams, see read_EMdgmSKMinfo
+        search_exp = b'#[CIMS][CDHIKOPRVWZ][CEILMOPTZ01]'
         compiled_expr = re.compile(search_exp)
         return compiled_expr
 
@@ -3484,7 +3517,9 @@ class kmall():
     def _divide_rec(self, rec):
         """
         MRZ comes in from sequential read by time/ping.  Each ping may have multiple sectors to it which we want
-        to treat as separate pings.  Do this by generating a new record for each sector in the ping.
+        to treat as separate pings.  Do this by generating a new record for each sector in the ping.  When rec is MRZ,
+        the return is a list of rec split by sector.  Otherwise returns the original rec as the only element in a list
+        returns: totalrecs, list of split rec
         """
         if self.datagram_ident != 'MRZ':
             return [rec]
@@ -3507,8 +3542,16 @@ class kmall():
 
     def _pad_to_dense(self, arr, padval=999.0, maxlen=500, override_type=None, detectioninfo=False):
         """
-        Appends the minimal required amount of zeroes at the end of each
-        array in the jagged array `M`, such that `M` looses its jaggedness.
+        Appends the minimal required amount of zeroes at the end of each array in the jagged array `M`, such that `M`
+        loses its jaggedness.
+
+        A required operation for our sector-wise read.  Each sector has a varying amount of beams over time, so the
+        resulting number of values per ping (beam pointing angle for example) will differ between pings.  Here we make
+        these ragged arrays square, by using the padval to fill in the holes.
+
+        A padval of 999 is arbitrary, but we use that nodatavalue in kluster to reform pings and do processing, so
+        leave at 999 for Kluster.  maxlen is the max number of expected beams per sector.
+        returns: Z, square array padded with padval where arr is ragged
         """
 
         # override the dynamic length of beams across records by applying static length limit.
@@ -3528,25 +3571,51 @@ class kmall():
                 Z[enu, :len(row)] = row
         return Z
 
-    def _finalize_records(self, recs_to_read):
+    def _finalize_records(self, recs_to_read, recs_count):
         """
-        Take sequential read records and finalize type/size/translate as needed
+        Take output from sequential_read_records and alter the type/size/translate as needed for Kluster to read and
+        convert to xarray.  Major steps include
+        - adding empty arrays so that concatenation later on will work
+        - pad_to_dense to convert the ragged sector-wise arrays into square numpy arrays
+        - translate the runtime parameters from integer/binary codes to string identifiers for easy reading (and to
+             allow comparing results between different file types)
+        returns: recs_to_read, dict of dicts finalized
         """
+        # drop the delay array and txsector_beam array since we've already used it for adjusting ping time and building
+        #    sector masks
+        recs_to_read['ping'].pop('delay')
+        recs_to_read['ping'].pop('txsector_beam')
+
+        # need to force in the serial number, its not in the header anymore with these kmall files...
+        if recs_to_read['installation_params']['installation_settings'] is not None:
+            inst_params = recs_to_read['installation_params']['installation_settings'][0]
+            if inst_params is not None:
+                recs_to_read['installation_params']['serial_one'] = np.array([int(inst_params['pu_serial_number'])])
+                # currently nothing in the record for identifying the second system in a dual head
+                recs_to_read['installation_params']['serial_two'] = np.array([0])
+
         for rec in recs_to_read:
             for dgram in recs_to_read[rec]:
-                if rec == 'ping':
-                    if dgram in ['beampointingangle', 'traveltime']:
+                if recs_count[rec] == 0:
+                    if rec != 'runtime_params' or dgram == 'time':
+                        # found no records, empty array
+                        recs_to_read[rec][dgram] = np.zeros(0)
+                    else:
+                        # found no records, empty array of strings for the mode/stab records
+                        recs_to_read[rec][dgram] = np.zeros(0, 'U2')
+                elif rec == 'ping':
+                    if dgram in ['beampointingangle', 'traveltime', 'qualityfactor_percent']:
                         # these datagrams can vary in number of beams, have to pad with 999 for 'jaggedness'
                         recs_to_read[rec][dgram] = self._pad_to_dense(recs_to_read[rec][dgram])
                     elif dgram in ['detectioninfo', 'qualityfactor']:
                         # same for detection info, but it also needs to be converted to something other than int8
                         recs_to_read[rec][dgram] = self._pad_to_dense(recs_to_read[rec][dgram], override_type=np.int)
                     elif dgram == 'yawandpitchstabilization':
-                        recs_to_read[rec][dgram] = self.translate_yawpitch(np.array(recs_to_read[rec][dgram]))
+                        recs_to_read[rec][dgram] = self.translate_yawpitch_tostring(np.array(recs_to_read[rec][dgram]))
                     elif dgram == 'mode':
-                        recs_to_read[rec][dgram] = self.translate_mode(np.array(recs_to_read[rec][dgram]))
+                        recs_to_read[rec][dgram] = self.translate_mode_tostring(np.array(recs_to_read[rec][dgram]))
                     elif dgram == 'modetwo':
-                        recs_to_read[rec][dgram] = self.translate_mode_two(np.array(recs_to_read[rec][dgram]))
+                        recs_to_read[rec][dgram] = self.translate_mode_two_tostring(np.array(recs_to_read[rec][dgram]))
                     else:
                         recs_to_read[rec][dgram] = np.array(recs_to_read[rec][dgram])
                 elif rec in ['navigation', 'attitude']:  # these recs have time blocks of data in them, need to be concatenated
@@ -3555,13 +3624,16 @@ class kmall():
                     recs_to_read[rec][dgram] = np.array(recs_to_read[rec][dgram])
         return recs_to_read
 
-    def sequential_read_records(self, start_ptr=0, end_ptr=0):
+    def sequential_read_records(self, start_ptr=0, end_ptr=0, first_installation_rec=False):
         """
         Read the file and return a dict of the wanted records/fields according to recs_categories.  If start_ptr/end_ptr
         is provided, start and end at those byte offsets.
+
+        returns: recs_to_read, dict of dicts for each desired record read sequentially, see recs_categories
         """
         wanted_records = list(recs_categories.keys())
-        recs_to_read = {}
+        recs_to_read = copy.deepcopy(recs_categories_result)
+        recs_count = dict([(k, 0) for k in recs_to_read])
 
         if self.FID is None:
             self.OpenFiletoRead()
@@ -3573,11 +3645,15 @@ class kmall():
         while not self.eof:
             if self.FID.tell() >= start_ptr + filelen:
                 self.eof = True
+                break
             self.decode_datagram()
             if self.datagram_ident not in wanted_records:
                 self.skip_datagram()
                 continue
             self.read_datagram()
+            for rec_ident in list(recs_categories_translator[self.datagram_ident].values())[0]:
+                recs_count[rec_ident[0]] += 1
+
             rec = self.datagram_data
             recs = self._divide_rec(rec)  # split up the MRZ record for multiple sectors, otherwise just returns [rec]
             for rec in recs:
@@ -3594,7 +3670,7 @@ class kmall():
                         rec_key = subrec
                         tmprec = rec[rec_key]
 
-                    if subrec == 'install_txt':  # str, casting to list splits the string, dont want that
+                    if subrec in ['install_txt', 'runtime_txt']:  # str, casting to list splits the string, dont want that
                         val = [tmprec]
                     else:
                         try:  # flow for array/list attribute
@@ -3604,27 +3680,29 @@ class kmall():
 
                     # generate new list or append to list for each rec of that dgram type found
                     for translated in recs_categories_translator[self.datagram_ident][subrec]:
-                        if translated[0] not in recs_to_read:
-                            recs_to_read[translated[0]] = {}
-                        if translated[1] not in recs_to_read[translated[0]]:
+                        if recs_to_read[translated[0]][translated[1]] is None:
                             recs_to_read[translated[0]][translated[1]] = copy.copy(val)
                         else:
                             recs_to_read[translated[0]][translated[1]].extend(val)
-
-        recs_to_read = self._finalize_records(recs_to_read)
+            if self.datagram_ident == 'IIP' and first_installation_rec:
+                self.eof = True
+        recs_to_read = self._finalize_records(recs_to_read, recs_count)
         return recs_to_read
 
-    def translate_yawpitch(self, arr):
+    def translate_yawpitch_tostring(self, arr):
         """
-        Translate the binary code to a string identifier
+        Translate the binary code to a string identifier. Allows user to understand the mode
+        without translating the integer code in their head.  Kluster will build plots using these string identifiers
+        in the legend.
 
         'yawpitchstabilization' = 'Y' for Yaw stab, 'P' for pitch stab, 'PY' for both, 'N' for neither
         # xxxxxxx0 no pitch stab, xxxxxxx1 pitch stab
-        # xxxxxxx0 no yaw stab, xxxxxxx1 yaw stab
+        # xxxxxx0x no yaw stab, xxxxxx1x yaw stab
 
+        returns: rslt, numpy array of strings containing the translated yawpitch values
         """
         rslt = np.full(arr.shape, 'N', dtype='U2')
-        first_bit_chk = np.bitwise_and(arr, (1 << 1)).astype(bool)
+        first_bit_chk = np.bitwise_and(arr, (1 << 0)).astype(bool)
         sec_bit_chk = np.bitwise_and(arr, (1 << 1)).astype(bool)
 
         rslt[np.intersect1d(np.where(first_bit_chk), np.where(sec_bit_chk))] = 'PY'
@@ -3632,31 +3710,36 @@ class kmall():
         rslt[np.intersect1d(np.where(first_bit_chk == False), np.where(sec_bit_chk))] = 'Y'
         return rslt
 
-    def translate_mode(self, arr):
+    def translate_mode_tostring(self, arr):
         """
-        Translate the binary code to a string identifier (for MRZ pulseForm)
+        Translate the binary code to a string identifier (for MRZ pulseForm).  Allows user to understand the mode
+        without translating the integer code in their head.  Kluster will build plots using these string identifiers
+        in the legend.
 
         'mode' = 'CW' for continuous waveform, 'FM' for frequency modulated, 'MIX' for both
-        xxxxxxx0 for CW, xxxxxxx1 for FM, xxxxxx10 for FM
+        0 for CW, 1 for MIX, 2 for FM
 
+        returns: rslt, numpy array of strings containing the translated mode values
         """
         rslt = np.full(arr.shape, 'MIX', dtype='U3')
-        frst_bit_chk = np.bitwise_and(arr, (1 << 0)).astype(bool)
-        sec_bit_chk = np.bitwise_and(arr, (1 << 1)).astype(bool)
 
-        rslt[np.intersect1d(np.where(frst_bit_chk == False), np.where(sec_bit_chk == False))] = 'CW'
-        rslt[np.intersect1d(np.where(frst_bit_chk), np.where(sec_bit_chk == False))] = 'FM'
+        rslt[np.where(arr == 0)] = 'CW'
+        rslt[np.where(arr == 1)] = 'MIX'
+        rslt[np.where(arr == 2)] = 'FM'
 
         return rslt
 
-    def translate_mode_two(self, arr):
+    def translate_mode_two_tostring(self, arr):
         """
-        Translate the binary code to a string identifier (for MRZ depthMode)
+        Translate the binary code to a string identifier (for MRZ depthMode).  Allows user to understand the mode
+        without translating the integer code in their head.  Kluster will build plots using these string identifiers
+        in the legend.
 
         0 = VS, 1 = SH, 2 = ME, 3 = DE, 4 = DR, 5 = VD, 6 = ED, 7 = XD
 
         if mode is manually selected, there will be an 'm' in front (ex: VSm)
 
+        returns: rslt, numpy array of strings containing the translated mode_two values
         """
         rslt = np.zeros(arr.shape, dtype='U3')
 
@@ -3679,6 +3762,171 @@ class kmall():
         rslt[np.where(arr == 100)] = 'VSm'
 
         return rslt
+
+    def translate_runtime_parameters_todict(self, r_text):
+        """
+        runtime parameters text comes from file as a string with carriage retuns between entries.
+
+        ex: '"\\nSector coverage\\nMax angle Port:      70.0\\nMax angle Starboard: 70.0\\nMax coverage Port:  ..."'
+
+        we want a dictionary of key: value pairs so we can save them as an xarray attribute and read them as a dict
+        whenever we need to access.  Also, we translate the keys to something more human readable.  The translated
+        key names will match up with .all files read with par module as well, so there is some cross compatibility (useful
+        for Kluster multibeam processing)
+
+        ex:
+
+        returns: translated, dict of translated runtime parameters and values
+        """
+        translated = {}
+        entries = r_text.split('\n')
+        for entry in entries:
+            if entry and (entry.find(':') != -1):  # valid entries look like 'key: value', the rest are headers or blank
+                key, value = entry.split(':')
+                translated[key] = value.lstrip().rstrip()
+        return translated
+
+    def translate_installation_parameters_todict(self, i_text):
+        """
+        installation parameters text comes from file as a comma delimited string with mix of = and ; separating the
+        key/value pairs
+
+        ex: 'SCV:Empty,EMXV:EM2040P,\nPU_0,\nSN=53011,\nIP=157.237.20.40:0xffff0000,\nUDP=1997,...'
+
+        we want a dictionary of key: value pairs so we can save them as an xarray attribute and read them as a dict
+        whenever we need to access.  Also, we translate the keys to something more human readable.  The translated
+        key names will match up with .all files read with par module as well, so there is some cross compatibility (useful
+        for Kluster multibeam processing)
+
+        ex: {"operator_controller_version": "Empty", "multibeam_system": "EM2040P", "pu_id_type": "0",
+             "pu_serial_number": "53011", "ip_address_subnet_mask": "157.237.20.40:0xffff0000",
+             "command_tcpip_port": "1997",...}
+
+        returns: translated, dict of translated installation parameters and values
+        """
+        translate_install = {'SCV:': 'operator_controller_version', 'EMXV:': 'sonar_model_number', 'PU_': 'pu_id_type',
+                             'SN=': 'pu_serial_number', 'IP=': 'ip_address_subnet_mask', 'UDP=': 'command_tcpip_port',
+                             'TYPE=': 'cpu_type', 'DCL:': 'dcl_version', 'KMALL:': 'kmall_version',
+                             'SYSTEM:': 'system_description', 'EMXI:SWLZ=': 'waterline_vertical_location'}
+        translate_versions = {'CPU:': 'cpu_software_version', 'VXW:': 'vxw_software_version',
+                              'FILTER:': 'filter_software_version', 'CBMF:': 'cbmf_software_version',
+                              'TX:': 'tx_software_version', 'RX:': 'rx_software_version'}
+        translate_serial = {'TX:': 'tx_serial_number', 'RX:': 'rx_serial_number'}
+        # device translator will use the device identifier plus the values here, ex: 'TRAI_HD1' + '_serial_number'
+        translate_device_ident = {'ATTI_1': 'motion_sensor_1', 'ATTI_2': 'motion_sensor_2', 'ATTI_3': 'motion_sensor_3',
+                                  'POSI_1': 'position_1', 'POSI_2': 'position_2', 'POSI_3': 'position_3',
+                                  'CLCK': 'clock', 'SVPI': 'sound_velocity_1', 'TRAI_HD1': 'transducer_1'}
+        translate_device = {'N=': '_serial_number', 'X=': '_along_location', 'Y=': '_athwart_location',
+                            'Z=': '_vertical_location', 'R=': '_roll_angle', 'P=': '_pitch_angle',
+                            'H=': '_heading_angle', 'S=': '_sounder_size_deg',
+                            'V=': '_version', 'W=': '_system_description', 'IPX=': '_port_sector_forward',
+                            'IPY=': '_port_sector_starboard', 'IPZ=': '_port_sector_down',
+                            'ICX=': '_center_sector_forward', 'ICY=': '_center_sector_starboard',
+                            'ICZ=': '_center_sector_down', 'ISX=': '_starboard_sector_forward',
+                            'ISY=': '_starboard_sector_starboard', 'ISZ=': '_starboard_sector_down',
+                            'ITX=': '_tx_forward', 'ITY=': '_tx_starboard', 'ITZ=': '_tx_down',
+                            'IRX=': '_rx_forward', 'IRY=': '_rx_starboard', 'IRZ=': '_rx_down', 'D=': '_time_delay',
+                            'G=': '_datum', 'T=': '_time_stamp', 'C=': '_motion_compensation', 'F=': '_data_format',
+                            'Q=': '_quality_check', 'I=': '_input_source', 'U=': '_active_passive',
+                            'M=': 'motion_reference', 'A=': '_1pps'}
+
+        # split by comma delimited groups
+        records = [i_text.split(',') for i_text in i_text.split('\n')]
+        # subgroups are semicolon delimited
+        # ex: TRAI_HD1:N=218;X=-0.293;Y=0.000;Z=0.861;R=0.496...
+        records_flatten = [r.split(';') for rec in records for r in rec if r]
+
+        translated = {}
+        translate = translate_install
+        for rec in records_flatten:
+            # subgroups are parsed here, first rec contains the prefix
+            # ex: ['ATTI_1:X=0.000', 'Y=0.000', 'Z=0.000', 'R=0.000', 'P=0.000', 'H=0.000', 'D=0.000'...
+            if len(rec) > 1:
+                prefix, first_rec = rec[0].split(':')
+                try:
+                    prefix = translate_device_ident[prefix]  # if its a prefix we haven't seen before, just pass it through
+                except:
+                    pass
+                ky, data = first_rec.split('=')
+                translated[prefix + translate_device[ky + '=']] = data
+                for subrec in rec[1:]:
+                    ky, data = subrec.split('=')
+                    translated[prefix + translate_device[ky + '=']] = data
+            # regular groups parsed here, use the headers to determine which translator to use
+            # ex:  ['CBMF:1.11 18.02.20 ']
+            else:
+                if rec[0] == 'VERSIONS:':
+                    translate = translate_versions
+                    continue
+                elif rec[0] == 'SERIALno:':
+                    translate = translate_serial
+                    continue
+                elif rec[0] in ['VERSIONS-END', 'SERIALno-END']:
+                    translate = translate_install
+                    continue
+                elif rec[0][-7:] == 'NOT_SET':
+                    continue
+
+                key = [trans_key for trans_key in translate if rec[0].find(trans_key) != -1]
+                if len(key) == 0:
+                    print('Unable to parse {}'.format(rec))
+                elif len(key) == 1:
+                    translated[translate[key[0]]] = rec[0][len(key[0]):].rstrip()
+                else:
+                    raise ValueError('Found multiple entries valid for record {}:{}'.format(rec, key))
+
+        # plug in new keys for active position/motion sensor needed for kluster to identify the right sensor
+        for mot_sens in ['motion_sensor_1_active_passive', 'motion_sensor_2_active_passive',
+                         'motion_sensor_3_active_passive']:
+            if mot_sens in translated:
+                if translated[mot_sens] == 'ACTIVE':
+                    translated['active_heading_sensor'] = 'motion_' + mot_sens[14]  # 'motion_1' in most cases
+        for pos_sens in ['position_1_active_passive', 'position_2_active_passive', 'position_3_active_passive']:
+            if pos_sens in translated:
+                if translated[pos_sens] == 'ACTIVE':
+                    translated['active_position_system_number'] = 'position_' + pos_sens[9]  # 'position_1'
+        return translated
+
+
+    def fast_read_start_end_time(self):
+        """
+        Get the start and end time for the file without mapping the file
+        returns: list, [UTC start time in seconds, UTC end time in seconds]
+        """
+        self.datagram_data = None
+        self.eof = False
+
+        if self.FID is None:
+            self.OpenFiletoRead()
+        else:
+            self.FID.seek(0)
+
+        start_time = None
+        end_time = None
+
+        while not self.eof:
+            self.decode_datagram()
+            self.read_datagram()
+            try:
+                start_time = self.datagram_data['header']['dgtime']
+                break
+            except:
+                continue
+
+        # pick 10k of reading just to make sure you get some valid records, or the filelength if it is less than that
+        self.FID.seek(0)
+        chunksize = min(10 * 1024, self.FID.tell())
+        self.FID.seek(-chunksize, 2)
+        self.seek_next_startbyte(chunksize, self.FID.tell())
+        while not self.eof:
+            self.decode_datagram()
+            self.read_datagram()
+            try:
+                end_time = self.datagram_data['header']['dgtime']
+                break
+            except:
+                continue
+        return [start_time, end_time]
 
 
 if __name__ == '__main__':
