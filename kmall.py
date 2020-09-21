@@ -18,65 +18,6 @@ import copy
 from pyproj import Proj
 from scipy import stats
 
-recs_categories = {'SKM': ['sample.KMdefault.dgtime', 'sample.KMdefault.roll_deg', 'sample.KMdefault.pitch_deg',
-                           'sample.KMdefault.heave_m', 'sample.KMdefault.heading_deg',
-                           'sample.KMdefault.latitude_deg', 'sample.KMdefault.longitude_deg',
-                           'sample.KMdefault.ellipsoidHeight_m'],
-                   'IIP': ['header.dgtime', 'install_txt'],
-                   'MRZ': ['header.dgtime', 'cmnPart.pingCnt', 'cmnPart.rxTransducerInd',
-                           'pingInfo.soundSpeedAtTxDepth_mPerSec', 'pingInfo.numTxSectors', 'header.systemID',
-                           'txSectorInfo.txSectorNumb', 'txSectorInfo.tiltAngleReTx_deg',
-                           'txSectorInfo.sectorTransmitDelay_sec', 'txSectorInfo.centreFreq_Hz',
-                           'sounding.beamAngleReRx_deg', 'sounding.txSectorNumb', 'sounding.detectionType',
-                           'sounding.qualityFactor', 'sounding.twoWayTravelTime_sec',
-                           'pingInfo.modeAndStabilisation', 'pingInfo.pulseForm', 'pingInfo.depthMode'],
-                   'IOP': ['header.dgtime', 'runtime_txt'],
-                   'SVP': ['time_sec', 'sensorData.depth_m', 'sensorData.soundVelocity_mPerSec']}
-
-recs_categories_translator = {'SKM': {'sample.KMdefault.dgtime': [['attitude', 'time'], ['navigation', 'time']],
-                                      'sample.KMdefault.roll_deg': [['attitude', 'roll']],
-                                      'sample.KMdefault.pitch_deg': [['attitude', 'pitch']],
-                                      'sample.KMdefault.heave_m': [['attitude', 'heave']],
-                                      'sample.KMdefault.heading_deg': [['attitude', 'heading']],
-                                      'sample.KMdefault.latitude_deg': [['navigation', 'latitude']],
-                                      'sample.KMdefault.longitude_deg': [['navigation', 'longitude']],
-                                      'sample.KMdefault.ellipsoidHeight_m': [['navigation', 'altitude']]},
-                              'MRZ': {'header.dgtime': [['ping', 'time']], 'cmnPart.pingCnt': [['ping', 'counter']],
-                                      'cmnPart.rxTransducerInd': [['ping', 'rxid']],
-                                      'pingInfo.soundSpeedAtTxDepth_mPerSec': [['ping', 'soundspeed']],
-                                      'pingInfo.numTxSectors': [['ping', 'ntx']],
-                                      'header.systemID': [['ping', 'serial_num']],
-                                      'txSectorInfo.txSectorNumb': [['ping', 'txsectorid']],
-                                      'txSectorInfo.tiltAngleReTx_deg': [['ping', 'tiltangle']],
-                                      'txSectorInfo.sectorTransmitDelay_sec': [['ping', 'delay']],
-                                      'txSectorInfo.centreFreq_Hz': [['ping', 'frequency']],
-                                      'sounding.beamAngleReRx_deg': [['ping', 'beampointingangle']],
-                                      'sounding.txSectorNumb': [['ping', 'txsector_beam']],
-                                      'sounding.detectionType': [['ping', 'detectioninfo']],
-                                      'sounding.qualityFactor': [['ping', 'qualityfactor_percent']],
-                                      'sounding.twoWayTravelTime_sec': [['ping', 'traveltime']],
-                                      'pingInfo.modeAndStabilisation': [['ping', 'yawpitchstab']],
-                                      'pingInfo.pulseForm': [['ping', 'mode']],
-                                      'pingInfo.depthMode': [['ping', 'modetwo']]},
-                              'IIP': {'header.dgtime': [['installation_params', 'time']],
-                                      'install_txt': [['installation_params', 'installation_settings']]},
-                              'IOP': {'header.dgtime': [['runtime_params', 'time']],
-                                      'runtime_txt': [['runtime_params', 'runtime_settings']]},
-                              'SVP': {'time_sec': [['profile', 'time']], 'sensorData.depth_m': [['profile', 'depth']],
-                                      'sensorData.soundVelocity_mPerSec': [['profile', 'soundspeed']]}}
-
-recs_categories_result = {'attitude':  {'time': None, 'roll': None, 'pitch': None, 'heave': None, 'heading': None},
-                          'installation_params': {'time': None, 'serial_one': None, 'serial_two': None,
-                                                  'installation_settings': None},
-                          'ping': {'time': None, 'counter': None, 'rxid': None, 'soundspeed': None, 'ntx': None,
-                                   'serial_num': None, 'txsectorid': None, 'tiltangle': None, 'delay': None,
-                                   'frequency': None, 'beampointingangle': None, 'txsector_beam': None,
-                                   'detectioninfo': None, 'qualityfactor_percent': None, 'traveltime': None, 'mode': None,
-                                   'modetwo': None, 'yawpitchstab': None},
-                          'runtime_params': {'time': None, 'runtime_settings': None},
-                          'profile': {'time': None, 'depth': None, 'soundspeed': None},
-                          'navigation': {'time': None, 'latitude': None, 'longitude': None, 'altitude': None}}
-
 
 class kmall():
     """ A class for reading a Kongsberg KMALL data file. """
@@ -3571,6 +3512,76 @@ class kmall():
                 Z[enu, :len(row)] = row
         return Z
 
+    def _build_sequential_read_categories(self):
+        """
+        sequential_read_records will go through the file and build a dictionary of the desired records.  Specify those
+        records that you want here, in  recs_categories.  I use a dot notation to access the correct attribute, see
+        below.
+        """
+        recs_categories = {'SKM': ['sample.KMdefault.dgtime', 'sample.KMdefault.roll_deg', 'sample.KMdefault.pitch_deg',
+                                   'sample.KMdefault.heave_m', 'sample.KMdefault.heading_deg',
+                                   'sample.KMdefault.latitude_deg', 'sample.KMdefault.longitude_deg',
+                                   'sample.KMdefault.ellipsoidHeight_m'],
+                           'IIP': ['header.dgtime', 'install_txt'],
+                           'MRZ': ['header.dgtime', 'cmnPart.pingCnt', 'cmnPart.rxTransducerInd',
+                                   'pingInfo.soundSpeedAtTxDepth_mPerSec', 'pingInfo.numTxSectors', 'header.systemID',
+                                   'txSectorInfo.txSectorNumb', 'txSectorInfo.tiltAngleReTx_deg',
+                                   'txSectorInfo.sectorTransmitDelay_sec', 'txSectorInfo.centreFreq_Hz',
+                                   'sounding.beamAngleReRx_deg', 'sounding.txSectorNumb', 'sounding.detectionType',
+                                   'sounding.qualityFactor', 'sounding.twoWayTravelTime_sec',
+                                   'pingInfo.modeAndStabilisation', 'pingInfo.pulseForm', 'pingInfo.depthMode'],
+                           'IOP': ['header.dgtime', 'runtime_txt'],
+                           'SVP': ['time_sec', 'sensorData.depth_m', 'sensorData.soundVelocity_mPerSec']}
+
+        recs_categories_translator = {'SKM': {'sample.KMdefault.dgtime': [['attitude', 'time'], ['navigation', 'time']],
+                                              'sample.KMdefault.roll_deg': [['attitude', 'roll']],
+                                              'sample.KMdefault.pitch_deg': [['attitude', 'pitch']],
+                                              'sample.KMdefault.heave_m': [['attitude', 'heave']],
+                                              'sample.KMdefault.heading_deg': [['attitude', 'heading']],
+                                              'sample.KMdefault.latitude_deg': [['navigation', 'latitude']],
+                                              'sample.KMdefault.longitude_deg': [['navigation', 'longitude']],
+                                              'sample.KMdefault.ellipsoidHeight_m': [['navigation', 'altitude']]},
+                                      'MRZ': {'header.dgtime': [['ping', 'time']],
+                                              'cmnPart.pingCnt': [['ping', 'counter']],
+                                              'cmnPart.rxTransducerInd': [['ping', 'rxid']],
+                                              'pingInfo.soundSpeedAtTxDepth_mPerSec': [['ping', 'soundspeed']],
+                                              'pingInfo.numTxSectors': [['ping', 'ntx']],
+                                              'header.systemID': [['ping', 'serial_num']],
+                                              'txSectorInfo.txSectorNumb': [['ping', 'txsectorid']],
+                                              'txSectorInfo.tiltAngleReTx_deg': [['ping', 'tiltangle']],
+                                              'txSectorInfo.sectorTransmitDelay_sec': [['ping', 'delay']],
+                                              'txSectorInfo.centreFreq_Hz': [['ping', 'frequency']],
+                                              'sounding.beamAngleReRx_deg': [['ping', 'beampointingangle']],
+                                              'sounding.txSectorNumb': [['ping', 'txsector_beam']],
+                                              'sounding.detectionType': [['ping', 'detectioninfo']],
+                                              'sounding.qualityFactor': [['ping', 'qualityfactor_percent']],
+                                              'sounding.twoWayTravelTime_sec': [['ping', 'traveltime']],
+                                              'pingInfo.modeAndStabilisation': [['ping', 'yawpitchstab']],
+                                              'pingInfo.pulseForm': [['ping', 'mode']],
+                                              'pingInfo.depthMode': [['ping', 'modetwo']]},
+                                      'IIP': {'header.dgtime': [['installation_params', 'time']],
+                                              'install_txt': [['installation_params', 'installation_settings']]},
+                                      'IOP': {'header.dgtime': [['runtime_params', 'time']],
+                                              'runtime_txt': [['runtime_params', 'runtime_settings']]},
+                                      'SVP': {'time_sec': [['profile', 'time']],
+                                              'sensorData.depth_m': [['profile', 'depth']],
+                                              'sensorData.soundVelocity_mPerSec': [['profile', 'soundspeed']]}}
+
+        recs_categories_result = {
+            'attitude': {'time': None, 'roll': None, 'pitch': None, 'heave': None, 'heading': None},
+            'installation_params': {'time': None, 'serial_one': None, 'serial_two': None,
+                                    'installation_settings': None},
+            'ping': {'time': None, 'counter': None, 'rxid': None, 'soundspeed': None, 'ntx': None,
+                     'serial_num': None, 'txsectorid': None, 'tiltangle': None, 'delay': None,
+                     'frequency': None, 'beampointingangle': None, 'txsector_beam': None,
+                     'detectioninfo': None, 'qualityfactor_percent': None, 'traveltime': None, 'mode': None,
+                     'modetwo': None, 'yawpitchstab': None},
+            'runtime_params': {'time': None, 'runtime_settings': None},
+            'profile': {'time': None, 'depth': None, 'soundspeed': None},
+            'navigation': {'time': None, 'latitude': None, 'longitude': None, 'altitude': None}}
+
+        return recs_categories, recs_categories_translator, recs_categories_result
+
     def _finalize_records(self, recs_to_read, recs_count):
         """
         Take output from sequential_read_records and alter the type/size/translate as needed for Kluster to read and
@@ -3631,6 +3642,7 @@ class kmall():
 
         returns: recs_to_read, dict of dicts for each desired record read sequentially, see recs_categories
         """
+        recs_categories, recs_categories_translator, recs_categories_result = self._build_sequential_read_categories()
         wanted_records = list(recs_categories.keys())
         recs_to_read = copy.deepcopy(recs_categories_result)
         recs_count = dict([(k, 0) for k in recs_to_read])
