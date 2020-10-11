@@ -7,19 +7,35 @@ section on commandline capability of ``kmall.py`` - be sure to check
 that out. Finally there’s also a list of obvious things that are yet to
 be completed or might be in place, but warrant rethinking.
 
+Installing the package
+----------------------
+
+There are a few ways to install the package, as there is a standard
+``setup.py`` file. But one of the easiest follows, which will make the
+package available with a simple import statement, and the ``kmall``
+commandline utility available to your command prompt. Execute the
+following in this kmall repository directory.
+
+``pip install -e .``
+
+The ``-e`` means we want to install the package in *editable* mode,
+meaning that if we edit any of the files in the package we do not have
+to reinstall the package for them to come into effect. We do have to
+reload the package or restart the python Kernel and reload it.
+
 The kmall Python Module
 -----------------------
 
 .. code:: ipython3
 
-    import kmall
+    import KMALL
 
 Each kmall object is associated with a datafile. So when creating an
 object, pass the filename to be associated with it.
 
 .. code:: ipython3
 
-    K = kmall.kmall('data/0007_20190513_154724_ASVBEN.kmall')
+    K = KMALL.kmall('data/0007_20190513_154724_ASVBEN.kmall')
 
 The file can be indexed with the following. This happens automatically
 when reading the file for other purposes, but sometimes you want the
@@ -214,12 +230,12 @@ record.
     K.FID.seek(MRZIndex["ByteOffset"].iloc[0],0)
     dg = K.read_EMdgmMRZ()
     print("MRZ Records:  " + ",".join( dg.keys()))
-    print("Soundings Record Fields: " + ",\n\t".join(dg["soundings"].keys()))
+    print("Soundings Record Fields: " + ",\n\t".join(dg["sounding"].keys()))
 
 
 .. parsed-literal::
 
-    MRZ Records:  header,Mpart,Mbody,pinginfo,txSectorinfo,rxinfo,extraDetClassInfo,soundings,Slsample_desidB
+    MRZ Records:  header,partition,cmnPart,pingInfo,txSectorInfo,rxInfo,extraDetClassInfo,sounding,SIsample_desidB
     Soundings Record Fields: soundingIndex,
     	txSectorNumb,
     	detectionType,
@@ -234,8 +250,8 @@ record.
     	qualityFactor,
     	detectionUncertaintyVer_m,
     	detectionUncertaintyHor_m,
-    	detectionWindowLength_m,
-    	echo_Length_sec,
+    	detectionWindowLength_sec,
+    	echoLength_sec,
     	WCBeamNumb,
     	WCrange_samples,
     	WCNomBeamAngleAcross_deg,
@@ -257,9 +273,9 @@ record.
     	x_reRefPoint_m,
     	beamIncAngleAdj_deg,
     	realTimeCleanInfo,
-    	SlstartRange_samples,
-    	SlcenterSample,
-    	SlnumSamples
+    	SIstartRange_samples,
+    	SIcentreSample,
+    	SInumSamples
 
 
 There is also a debugging method ``print_datagram()`` for printing the
@@ -277,12 +293,19 @@ which is not so large.
     
     
     numBytesDgm:			69036
+    
     dgmType:			b'#MRZ'
+    
     dgmVersion:			0
+    
     systemID:			40
+    
     echoSounderID:			2040
+    
     dgtime:			1557762443.1261249
+    
     dgdatetime:			2019-05-13 15:47:23.126125
+    
 
 
 The kmall.py Commandline Utility
@@ -290,15 +313,18 @@ The kmall.py Commandline Utility
 
 In addition to being able to parse kmall data files, kmall.py has a lot
 of functionality build right in when called on the command line. Here
-are some examples: (Note that access to the bash shell from this python
-notebook requires pre-pending each line with ``!``. This should be
-omitted when calling directly from the command line.)
+are some examples:
+
+(Note that access to the bash shell from this python notebook requires
+pre-pending each line with ``!``. This should be omitted when calling
+directly from the command line. Also note that kmall.py will be
+installed in your default python scripts directory.)
 
 First we can see what is possible by asking for help.
 
 .. code:: ipython3
 
-    !./kmall.py -h
+    !./KMALL/kmall.py -h
 
 
 .. parsed-literal::
@@ -306,7 +332,7 @@ First we can see what is possible by asking for help.
     usage: kmall.py [-h] [-f KMALL_FILENAME] [-d KMALL_DIRECTORY] [-V] [-z]
                     [-l COMPRESSIONLEVEL] [-Z] [-v]
     
-    A python script (and class)for parsing Kongsberg KMALL data files.
+    A python script (and class) for parsing Kongsberg KMALL data files.
     
     optional arguments:
       -h, --help           show this help message and exit
@@ -335,7 +361,7 @@ following:
 
 .. code:: ipython3
 
-    !./kmall.py -f data/0007_20190513_154724_ASVBEN.kmall -V
+    !./KMALL/kmall.py -f data/0007_20190513_154724_ASVBEN.kmall -V
 
 
 .. parsed-literal::
@@ -430,9 +456,9 @@ Here’s how it works:
     !ls -lh compressiondata/0007_20190513_154724_ASVBEN.kmall.test.bz2
     
     # kmall compresssion on the same file. 
-    !./kmall.py -f compressiondata/0007_20190513_154724_ASVBEN.kmall -z -l0
+    !./KMALL/kmall.py -f compressiondata/0007_20190513_154724_ASVBEN.kmall -z -l0
     !ls -lh compressiondata/0007_20190513_154724_ASVBEN.kmall.0z
-    !./kmall.py -f compressiondata/0007_20190513_154724_ASVBEN.kmall -z -l1
+    !./KMALL/kmall.py -f compressiondata/0007_20190513_154724_ASVBEN.kmall -z -l1
     !ls -lh compressiondata/0007_20190513_154724_ASVBEN.kmall.1z
     
     # Now bzip2 that.
@@ -445,11 +471,11 @@ Here’s how it works:
     # Note that kmall.py is careful not to clobber the original file.
     !bunzip2 compressiondata/0007_20190513_154724_ASVBEN.kmall.0z.bz2
     !bunzip2 compressiondata/0007_20190513_154724_ASVBEN.kmall.1z.bz2
-    !./kmall.py -f compressiondata/0007_20190513_154724_ASVBEN.kmall.0z -Z
+    !./KMALL/kmall.py -f compressiondata/0007_20190513_154724_ASVBEN.kmall.0z -Z
     !ls -lh compressiondata/0007_20190513_154724_ASVBEN_01.kmall
     
     
-    !./kmall.py -f compressiondata/0007_20190513_154724_ASVBEN.kmall.1z -Z
+    !./KMALL/kmall.py -f compressiondata/0007_20190513_154724_ASVBEN.kmall.1z -Z
     !ls -lh compressiondata/0007_20190513_154724_ASVBEN_02.kmall
     
 
@@ -457,26 +483,26 @@ Here’s how it works:
 
 .. parsed-literal::
 
-    -rwxr-xr-x  1 vschmidt  1129769604    32M Mar 17 09:36 [31mcompressiondata/0007_20190513_154724_ASVBEN.kmall[m[m
-    -rwxr-xr-x  1 vschmidt  1129769604    20M Mar 17 17:24 [31mcompressiondata/0007_20190513_154724_ASVBEN.kmall.test.bz2[m[m
+    -rwxr-xr-x  1 vschmidt  1129769604    32M Mar 17  2020 [31mcompressiondata/0007_20190513_154724_ASVBEN.kmall[m[m
+    -rwxr-xr-x  1 vschmidt  1129769604    20M Oct 11 17:54 [31mcompressiondata/0007_20190513_154724_ASVBEN.kmall.test.bz2[m[m
     
     Processing: compressiondata/0007_20190513_154724_ASVBEN.kmall
     Compressing soundings and imagery.
-    -rw-r--r--  1 vschmidt  1129769604    14M Mar 17 17:24 compressiondata/0007_20190513_154724_ASVBEN.kmall.0z
+    -rw-r--r--  1 vschmidt  1129769604    14M Mar 17  2020 compressiondata/0007_20190513_154724_ASVBEN.kmall.0z
     
     Processing: compressiondata/0007_20190513_154724_ASVBEN.kmall
     Compressing soundings, omitting imagery.
-    -rw-r--r--  1 vschmidt  1129769604   7.6M Mar 17 17:24 compressiondata/0007_20190513_154724_ASVBEN.kmall.1z
-    -rw-r--r--  1 vschmidt  1129769604    13M Mar 17 17:24 compressiondata/0007_20190513_154724_ASVBEN.kmall.0z.bz2
-    -rw-r--r--  1 vschmidt  1129769604   7.0M Mar 17 17:24 compressiondata/0007_20190513_154724_ASVBEN.kmall.1z.bz2
+    -rw-r--r--  1 vschmidt  1129769604   7.6M Mar 17  2020 compressiondata/0007_20190513_154724_ASVBEN.kmall.1z
+    -rw-r--r--  1 vschmidt  1129769604    13M Mar 17  2020 compressiondata/0007_20190513_154724_ASVBEN.kmall.0z.bz2
+    -rw-r--r--  1 vschmidt  1129769604   7.0M Mar 17  2020 compressiondata/0007_20190513_154724_ASVBEN.kmall.1z.bz2
     
     Processing: compressiondata/0007_20190513_154724_ASVBEN.kmall.0z
     Decompressing soundings and imagery.(Level: 0)
-    -rw-r--r--  1 vschmidt  1129769604    32M Mar 17 17:25 compressiondata/0007_20190513_154724_ASVBEN_01.kmall
+    -rw-r--r--  1 vschmidt  1129769604    32M Mar 17  2020 compressiondata/0007_20190513_154724_ASVBEN_01.kmall
     
     Processing: compressiondata/0007_20190513_154724_ASVBEN.kmall.1z
     Decompessing soundings, imagery was omitted in this format. (Level: 1)
-    -rw-r--r--  1 vschmidt  1129769604    23M Mar 17 17:25 compressiondata/0007_20190513_154724_ASVBEN_02.kmall
+    -rw-r--r--  1 vschmidt  1129769604    23M Mar 17  2020 compressiondata/0007_20190513_154724_ASVBEN_02.kmall
 
 
 In the example we start with a 32 MB file. Native bzip2 compression
@@ -498,15 +524,15 @@ What’s next:
 Here’s a list of improvements that need to be made:
 
 1.  The installation parameters datagram can be read, but the text
-    string cannot yet be parsed.
+    string cannot yet be parsed. (done)
 2.  The runtime parameters datagram can be read, but the text string
-    cannot yet be parsed.
+    cannot yet be parsed. (done)
 3.  The file Index is indexed by time in Unix format. These could/should
     be converted to human readable times.
-4.  In file index messag type is not a simple “MRZ” but rather the text
+4.  In file index message type is not a simple “MRZ” but rather the text
     “b’#MRZ’”. This could be simplified.
 5.  There is not yet a read_next_datagram() method, which can be useful
-    to walk through a file. (although the index helps)
+    to walk through a file. (although the index helps) (done)
 6.  There is not yet a utilty function that can extract all the sounding
     data in x,y,z re vessel and x,y,z in geographic coordinates and
     meters for a) the ping and b) all pings between two indices and c)
@@ -517,6 +543,9 @@ Here’s a list of improvements that need to be made:
 9.  A “compression” method could drop the high rate navigation
     datagrams, (assuming there is no need for it)
 10. Lots of improvements in efficiency.
+11. Kongsberg has incremented the versions of their datagrams in a way
+    that is not backward compatible and this code does not yet handle
+    multiple versions.
 
 
 
