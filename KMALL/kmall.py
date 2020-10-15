@@ -3247,7 +3247,7 @@ class kmall():
             needs_flattening = [k for (k,v) in listofdicts[0].items() if isinstance(v, list)]
             d_of_l = {k: [dic[k] for dic in listofdicts] for k in listofdicts[0]}
             if needs_flattening:
-                print('flattening {}'.format(needs_flattening))
+                # print('flattening {}'.format(needs_flattening))
                 for nf in needs_flattening:
                     d_of_l[nf] = [item for sublist in d_of_l[nf] for item in sublist]
             return d_of_l
@@ -3942,7 +3942,11 @@ class kmall():
         return [start_time, end_time]
 
 
-if __name__ == '__main__':
+def main(args=None):
+    ''' Commandline script code.'''
+    if args == None:
+        args = sys.argv[1:]
+
     # Handle input arguments
     parser = argparse.ArgumentParser(description="A python script (and class) "
                                                  "for parsing Kongsberg KMALL "
@@ -4180,3 +4184,6 @@ if __name__ == '__main__':
 
             T.closeFile()
             K.closeFile()
+
+if __name__ == '__main__':
+    sys.exit(main())
