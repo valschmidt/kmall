@@ -1168,7 +1168,7 @@ class kmall():
 
         return dg
 
-    def read_EMdgmSPOdataBlock(self):
+    def read_EMdgmSPOdataBlock(self, length):
         """
         Read #SPO - Sensor position data block. Data from active sensor is corrected data for position system
         installation parameters. Data is also corrected for motion (roll and pitch only) if enabled by K-Controller
@@ -1180,45 +1180,46 @@ class kmall():
         # LMD added, tested.
 
         dg = {}
-        format_to_unpack = "2I1f"
+        format_to_unpack = "2I1f2d3f"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # UTC time from position sensor. Unit seconds. Epoch 1970-01-01. Nanosec part to be added for more exact time.
         dg['timeFromSensor_sec'] = fields[0]
         # UTC time from position sensor. Unit nano seconds remainder.
         dg['timeFromSensor_nanosec'] = fields[1]
+
+        # Convert datetime from sensor packet to Python-format datetime
         dg['datetime'] = datetime.datetime.utcfromtimestamp(dg['timeFromSensor_sec']
                                                             + dg['timeFromSensor_nanosec'] / 1.0E9)
         # Only if available as input from sensor. Calculation according to format.
         dg['posFixQuality_m'] = fields[2]
 
-        # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
-        format_to_unpack = "2d3f250s"
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
-
         # Motion corrected (if enabled in K-Controller) data as used in depth calculations. Referred to vessel
         # reference point. Unit decimal degree. Parameter is set to define UNAVAILABLE_LATITUDE if sensor inactive.
-        dg['correctedLat_deg'] = fields[0]
+        dg['correctedLat_deg'] = fields[3]
         # Motion corrected (if enabled in K-Controller) data as used in depth calculations. Referred to vessel
         # reference point. Unit decimal degree. Parameter is set to define UNAVAILABLE_LONGITUDE if sensor inactive.
-        dg['correctedLong_deg'] = fields[1]
+        dg['correctedLong_deg'] = fields[4]
         # Speed over ground. Unit m/s. Motion corrected (if enabled in K-Controller) data as used in depth calculations.
         # If unavailable or from inactive sensor, value set to define UNAVAILABLE_SPEED.
-        dg['speedOverGround_mPerSec'] = fields[2]
+        dg['speedOverGround_mPerSec'] = fields[5]
         # Course over ground. Unit degree. Motion corrected (if enabled in K-Controller) data as used in depth
         # calculations. If unavailable or from inactive sensor, value set to define UNAVAILABLE_COURSE.
-        dg['courseOverGround_deg'] = fields[3]
+        dg['courseOverGround_deg'] = fields[6]
         # Height of vessel reference point above the ellipsoid. Unit meter.
         # Motion corrected (if enabled in K-Controller) data as used in depth calculations.
         # If unavailable or from inactive sensor, value set to define UNAVAILABLE_ELLIPSOIDHEIGHT.
-        dg['ellipsoidHeightReRefPoint_m'] = fields[4]
+        dg['ellipsoidHeightReRefPoint_m'] = fields[7]
 
-        # TODO: This is an array of (max?) length MAX_SPO_DATALENGTH; do something else here?
-        # TODO: Get MAX_SPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
+        # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
+        pos_data_len = length - struct.Struct(format_to_unpack).size
+        format_to_unpack = "%ds" % pos_data_len
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+
+        # TODO: This is an array of(max?) length MAX_CPO_DATALENGTH; do something else here?
+        # TODO: Get MAX_CPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
         # TODO: This works for now, but maybe there is a smarter way?
-        # Position data as received from sensor, i.e. uncorrected for motion etc.
-        tmp = fields[5]
-        dg['posDataFromSensor'] = tmp[0:tmp.find(b'\r\n')]
+        dg['posDataFromSensor'] = fields[0]
 
         if self.verbose > 2:
             self.print_datagram(dg)
@@ -1241,7 +1242,10 @@ class kmall():
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
-        dg['sensorData'] = self.read_EMdgmSPOdataBlock()
+
+        ## Data block length is balance of datagram minus 4 for the confirmation packet length at end
+        data_block_len =  dg['header']['numBytesDgm'] - 4 -(self.FID.tell()-start)
+        dg['sensorData'] = self.read_EMdgmSPOdataBlock( data_block_len )
 
         # Seek to end of the packet.
         self.FID.seek(start + dg['header']['numBytesDgm'], 0)
@@ -1706,7 +1710,7 @@ class kmall():
 
         return dg
 
-    def read_EMdgmSCLdataFromSensor(self):
+    def read_EMdgmSCLdataFromSensor(self, length):
         """
         Read part of clock datagram giving offsets and the raw input in text format.
         :return: A dictionary containing EMdgmSCLdataFromSensor.
@@ -1715,7 +1719,7 @@ class kmall():
         # LMD tested.
 
         dg = {}
-        format_to_unpack = "1f1i64s"
+        format_to_unpack = "1f1i"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Offset in seconds from K-Controller operator input.
@@ -1724,12 +1728,12 @@ class kmall():
         # source. Unit nanoseconds. Difference smaller than +/- 1 second if 1PPS is active and sync from ZDA.
         dg['clockDevPU_nanosec'] = fields[1]
 
-        # TODO: This is an array of (max?) length MAX_SCL_DATALENGTH; do something else here?
-        # TODO: Get MAX_SCL_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
-        # TODO: This works for now, but maybe there is a smarter way?
+        sensor_data_len = length - struct.Struct(format_to_unpack).size
+        format_to_unpack = "%ds" % sensor_data_len
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+
         # Position data as received from sensor, i.e. uncorrected for motion etc.
-        tmp = fields[2]
-        dg['dataFromSensor'] = tmp[0:tmp.find(b'\x00\x00L')]
+        dg['dataFromSensor'] = fields[0]
 
         return dg
 
@@ -1745,7 +1749,9 @@ class kmall():
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
-        dg['sensData'] = self.read_EMdgmSCLdataFromSensor()
+
+        data_block_len =  dg['header']['numBytesDgm'] - 4 -(self.FID.tell()-start)
+        dg['sensData'] = self.read_EMdgmSCLdataFromSensor( data_block_len )
 
         # Seek to end of the packet.
         self.FID.seek(start + dg['header']['numBytesDgm'], 0)
