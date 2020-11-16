@@ -41,6 +41,45 @@ class kmall():
         self.read_method = None
         self.eof = False
 
+    def scanToDatagram(self):
+        """
+        A method to scan to the next datagram header.
+        """
+        foundDatagram = False
+        bufferSize = 64
+        format_to_unpack = str(bufferSize) + 's'
+        while not foundDatagram:
+            # Get position in the file.
+            # startPtr = FID.tell()
+            # Read some bytes.
+            buffer = self.FID.read(struct.Struct(format_to_unpack).size)
+
+            # If we didn't get a full buffer, we've read to EOF.
+            # Break out of loop next go, and reset the format to unpack
+            # for what we did read.
+            if len(buffer) < bufferSize:
+                foundDatagram = True
+                format_to_unpack = str(len(buffer)) + 's'
+
+            # print(buffer)
+
+            # Search for the datagram header ID.
+            m = re.search(b'\\#[A-Z]{3}',
+                          struct.unpack(format_to_unpack, buffer)[0])
+            if m:
+                print(m)
+                # If a header was found seek to the ID, minus
+                # 4 bytes to get to the start of the datagram.
+                self.FID.seek(-bufferSize + m.span()[0] - 4, 1)
+                foundDatagram = True
+            else:
+                if self.file_size - self.FID.tell() > bufferSize:
+                    # Seek backward 4 bytes if we didn't get a match
+                    # This handles the case when the ID is split
+                    # between two buffer reads.
+                    self.FID.seek(-4, 1)
+
+
     def decode_datagram(self):
         """
         Assumes the file pointer is at the correct position to read the size of the dgram and the identifier
@@ -3133,9 +3172,12 @@ class kmall():
                 # Read the datagram.
                 msg_buffer = self.FID.read(int(self.msgsize[self.pktcnt]) - 4)
             except:
-                print("Error indexing file: %s" % self.filename)
+                print("Error indexing file: %s at byte offset %d" % (self.filename, self.FID.tell()))
+
                 self.msgoffset = self.msgoffset[:-1]
                 self.msgsize = self.msgsize[:-1]
+                self.scanToDatagram()
+
                 continue
 
             # Interpret the header.
@@ -3156,7 +3198,7 @@ class kmall():
             # lisec = nanosec
             # lisec /= 1E6
 
-            # Captue the datagram header timestamp.
+            # Capture the datagram header timestamp.
             self.msgtime.append(sec + nsec / 1.0E9)
 
             if self.verbose:
@@ -3178,6 +3220,13 @@ class kmall():
                                    'MessageType': self.msgtype})
         self.Index.set_index('Time', inplace=True)
         self.Index['MessageType'] = self.Index.MessageType.astype('category')
+
+        unreadBytes = self.file_size - self.Index.MessageSize.sum()
+        if unreadBytes > 0:
+            print()
+            print("   *** WARNING! %d bytes were not interpreted in this file! ***" % unreadBytes)
+            print()
+
         if self.verbose >= 2:
             print(self.Index)
 
@@ -3360,9 +3409,9 @@ class kmall():
                 MissingMRZCount = MissingMRZCount + 1
 
         # Shamelessly creating a data frame just to get a pretty table.
-        res = pd.DataFrame([["File", "NpingsTotal", "Pings Missed", "MissingMRZRecords"],
-                            [self.filename, NpingsMissed + NpingsSeen, NpingsMissed, MissingMRZCount]])
-        print(res.to_string(index=False, header=False))
+        #res = pd.DataFrame([["File", "NpingsTotal", "Pings Missed", "MissingMRZRecords"],
+        #                    [self.filename, NpingsMissed + NpingsSeen, NpingsMissed, MissingMRZCount]])
+        #print(res.to_string(index=False, header=False))
 
         if HaveAllMRZ:
             if self.verbose > 1:
@@ -4026,7 +4075,9 @@ def main(args=None):
         pingcheckdata = []
         navcheckdata = []
         if verify:
+
             K.report_packet_types()
+
             pingcheckdata.append([x for x in K.check_ping_count()])
 
             K.extract_attitude()
