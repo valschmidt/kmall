@@ -41,6 +41,10 @@ class kmall():
         self.read_method = None
         self.eof = False
 
+    ###########################################################
+    # Reading datagram utilities
+    ###########################################################
+
     def scanToDatagram(self):
         """
         A method to scan to the next datagram header.
@@ -78,7 +82,6 @@ class kmall():
                     # This handles the case when the ID is split
                     # between two buffer reads.
                     self.FID.seek(-4, 1)
-
 
     def decode_datagram(self):
         """
@@ -175,6 +178,10 @@ class kmall():
         if self.datagram_data is None:
             print('Unable to find {} in file'.format(datagram_identifier))
         return self.datagram_data
+
+    ###########################################################
+    # Reading datagrams
+    ###########################################################
 
     def read_EMdgmHeader(self):
         """
@@ -318,7 +325,7 @@ class kmall():
         dg['BISTStatus'] = fields[4]
 
         # Result of the BIST. Starts with a synopsis of the result, followed by detailed descriptions.
-        tmp = FID.read(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size)
+        tmp = self.FID.read(dg['numBytesCmnPart'] - struct.Struct(format_to_unpack).size)
         bist_text = tmp.decode('UTF-8')
         # print(bist_text)
         dg['BISTText'] = bist_text
@@ -2013,7 +2020,7 @@ class kmall():
         self.write_EMdgmMRZ_rxInfo(dg['rxInfo'])
 
         for detclass in range(dg['rxInfo']['numExtraDetectionClasses']):
-            self.write_EMdgmMRZ_extraDetClassInfo(FID, dg['extraDetClassInfo'], detclass)
+            self.write_EMdgmMRZ_extraDetClassInfo(dg['extraDetClassInfo'], detclass)
 
         Nseabedimage_samples = 0
         for record in range(dg['rxInfo']['numExtraDetections'] +
@@ -2055,7 +2062,7 @@ class kmall():
         for sector in range(dg['pingInfo']['numTxSectors']):
             self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'], sector)
 
-        write_EMdgmMRZ_rxInfo(dg['rxInfo'])
+        self.write_EMdgmMRZ_rxInfo(dg['rxInfo'])
 
         for detclass in range(dg['rxInfo']['numExtraDetectionClasses']):
             self.write_EMdgmMRZ_extraDetClassInfo(dg['extraDetClassInfo'], detclass)
@@ -3303,8 +3310,35 @@ class kmall():
         else:
             return None
 
-    def extract_xyz(self):
-        pass
+    def extractLonLatZ(self):
+        """ A method to extract Longitude, Latitude and Depth for each soundings."""
+
+        if self.Index is None:
+            self.index_file()
+
+        if self.FID is None:
+            self.OpenFiletoRead()
+
+        # M = map( lambda x: x=="b'#MRZ'", self.msgtype)
+        # MRZOffsets = self.msgoffset[list(M)]
+
+        # Get the file byte count offset for each MRZ datagram.
+        MRZOffsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#MRZ'"]
+
+        # Initialize array to store the data.
+        lat = np.array([])
+        lon = np.array([])
+        z = np.array([])
+
+        for offset in MRZOffsets:
+            self.FID.seek(offset, 0)
+            dg = self.read_EMdgmMRZ()
+
+            z = np.concatenate([z,  np.array(dg['sounding']['z_reRefPoint_m']) - dg['pingInfo']['z_waterLevelReRefPoint_m']])
+            lat = np.concatenate([lat, dg['pingInfo']['latitude_deg'] + np.array(dg['sounding']['deltaLatitude_deg'])])
+            lon = np.concatenate([lon, dg['pingInfo']['longitude_deg'] + np.array(dg['sounding']['deltaLongitude_deg'])])
+
+        return (lon.flatten(),lat.flatten(),z.flatten())
 
     def check_ping_count(self):
         """ A method to check to see that all required MRZ datagrams exist """
@@ -4044,7 +4078,7 @@ def main(args=None):
         filestoprocess = []
 
         if verbose >= 3:
-            print("directory: " + directory)
+            print("directory: " + kmall_directory)
 
         # Recursively work through the directory looking for kmall files.
         for root, subFolders, files in os.walk(kmall_directory):
