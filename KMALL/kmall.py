@@ -15,7 +15,6 @@ import os
 import re
 import bz2
 import copy
-from pyproj import Proj
 from scipy import stats
 
 
@@ -40,6 +39,19 @@ class kmall():
         self.datagram_data = None
         self.read_method = None
         self.eof = False
+        self.time_buffer = []
+
+        self.datagram_version = None
+        self.validate_inputs()
+
+    def validate_inputs(self):
+        """
+        Ensure that the file passed in is a valid .kmall file
+        """
+        if not os.path.exists(self.filename):
+            raise ValueError('File provided does not exist: {}'.format(self.filename))
+        if os.path.splitext(self.filename)[1] != '.kmall':
+            raise ValueError('File provided does not have the kmall extension: {}'.format(self.filename))
 
     ###########################################################
     # Reading datagram utilities
@@ -175,6 +187,8 @@ class kmall():
             else:
                 self.read_datagram()
                 break
+
+        self.FID.seek(0)
         if self.datagram_data is None:
             print('Unable to find {} in file'.format(datagram_identifier))
         return self.datagram_data
@@ -211,6 +225,7 @@ class kmall():
         dg['dgtime'] = fields[5] + fields[6] / 1.0E9
         dg['dgdatetime'] = datetime.datetime.utcfromtimestamp(dg['dgtime'])
 
+        self.datagram_version = dg['dgmVersion']
         if self.verbose > 2:
             self.print_datagram(dg)
 
@@ -593,7 +608,14 @@ class kmall():
         # LMD tested.
 
         dg = {}
-        format_to_unpack = "4B7f2B1H"
+        # I haven't yet been able to connect the dgmVersion number with the letter version of the datagram format document
+        # but the additional parameters showed up in version G, which seems to be dgmVersion 2
+        if self.datagram_version >= 2:
+            additional_parameters = True
+            format_to_unpack = "4B7f2B1H3f"
+        else:
+            additional_parameters = False
+            format_to_unpack = "4B7f2B1H"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # TX sector index number, used in the sounding section. Starts at 0.
@@ -629,6 +651,17 @@ class kmall():
         dg['signalWaveForm'] = fields[12]
         # Byte alignment.
         dg['padding1'] = fields[13]
+
+        if additional_parameters:
+            # 20 log(Measured high voltage power level at TX pulse / Nominal high voltage power level). This parameter
+            # will also include the effect of user selected transmit power reduction (transmitPower_dB) and mammal
+            # protection. Actual SL = txNominalSourceLevel_dB + highVoltageLevel_dB. Unit dB.
+            dg['highVoltageLevel_dB'] = fields[14]
+            # Backscatter correction added in sector tracking mode. Unit dB.
+            dg['sectorTrackingCorr_dB'] = fields[15]
+            # Signal length used for backscatter footprint calculation. This compensates for the TX pulse tapering and
+            # the RX filter bandwidths. Unit second.
+            dg['effectiveSignalLength_sec'] = fields[16]
 
         if self.verbose > 2:
             self.print_datagram(dg)
@@ -868,7 +901,7 @@ class kmall():
             txSectorInfo.append(self.read_EMdgmMRZ_txSectorInfo())
         dg['txSectorInfo'] = self.listofdicts2dictoflists(txSectorInfo)
 
-        # Read reInfo
+        # Read rxInfo
         dg['rxInfo'] = self.read_EMdgmMRZ_rxInfo()
 
         # Read extra detect metadata if they exist.
@@ -3539,62 +3572,51 @@ class kmall():
                     self.FID.seek(possible_start - 4)
                     return True
 
-    def _divide_rec(self, rec):
+    def _populate_rec(self, rec: dict):
         """
-        MRZ comes in from sequential read by time/ping.  Each ping may have multiple sectors to it which we want
-        to treat as separate pings.  Do this by generating a new record for each sector in the ping.  When rec is MRZ,
-        the return is a list of rec split by sector.  Otherwise returns the original rec as the only element in a list
-        returns: totalrecs, list of split rec
+        MRZ comes in from sequential read by time/ping.  We want to just expand all the sector based arrays from
+        sector-wise to beam-wise.  This will make our xarray Dataset only have time/beam dimensions, which makes
+        further computation simple.
+
+        Creates some duplication, but compression will basically make the increased data stored take up like no space
         """
         if self.datagram_ident != 'MRZ':
-            return [rec]
-        elif rec['pingInfo']['numTxSectors'] == 1:
-            return [rec]
+            return rec
+        elif np.isnan(rec['sounding']['twoWayTravelTime_sec']).all():
+            print('Kmall: {}: Found invalid ping (did not contain travel time'.format(rec['header']['dgtime']))
+            return None
         else:
-            totalrecs = []
-            pingtime = rec['header']['dgtime']
-            for sec in rec['txSectorInfo']['txSectorNumb']:
-                split_rec = copy.copy(rec)
-                split_rec['txSectorInfo'] = {k: v[sec] for (k,v) in rec['txSectorInfo'].items()}
-                rx_index = np.where(np.array(rec['sounding']['txSectorNumb']) == sec)
-                split_rec['sounding'] = {k: np.array(v)[rx_index] for (k,v) in rec['sounding'].items()}
+            # any NaN returns for traveltime are set to 0, lets us easily filter later
+            rec['sounding']['twoWayTravelTime_sec'] = np.nan_to_num(rec['sounding']['twoWayTravelTime_sec'])
+            
+            record_time = rec['header']['dgtime']
+            # xarray Dataset must have no duplicate times (this appears to happen every now and then with dual head/dual ping)
+            while record_time in self.time_buffer:
+                record_time = record_time + 0.000001
+            self.time_buffer.append(record_time)
+            if len(self.time_buffer) > 10:
+                self.time_buffer.remove(self.time_buffer[0])
 
-                # ping time equals datagram time plus sector transmit delay
-                split_rec['header']['dgtime'] = pingtime + split_rec['txSectorInfo']['sectorTransmitDelay_sec']
+            # expand out the sector wise arrays to be beam wise
+            txsector_index = np.array(rec['sounding']['txSectorNumb'])
+            populated_delay = np.empty(txsector_index.shape, dtype=np.float32)
+            populated_freq = np.empty(txsector_index.shape, dtype=np.int32)
+            populated_tiltangle = np.empty(txsector_index.shape, dtype=np.float32)
+            try:
+                for id in np.unique(txsector_index):
+                    populated_delay[txsector_index == id] = rec['txSectorInfo']['sectorTransmitDelay_sec'][id]
+                    populated_freq[txsector_index == id] = rec['txSectorInfo']['centreFreq_Hz'][id]
+                    populated_tiltangle[txsector_index == id] = rec['txSectorInfo']['tiltAngleReTx_deg'][id]
+            except:
+                # this is a duplicate, happens when running sequential read with start_ptr/end_ptr, eof doesnt kick in
+                # shows here because 'Delay', etc.  are already removed from rec.tx
+                return None
 
-                totalrecs.append(split_rec)
-            return totalrecs
+            rec['txSectorInfo']['tiltAngleReTx_deg'] = populated_tiltangle.tolist()
+            rec['txSectorInfo']['centreFreq_Hz'] = populated_freq.tolist()
+            rec['txSectorInfo']['sectorTransmitDelay_sec'] = populated_delay.tolist()
 
-    def _pad_to_dense(self, arr, padval=999.0, maxlen=500, override_type=None, detectioninfo=False):
-        """
-        Appends the minimal required amount of zeroes at the end of each array in the jagged array `M`, such that `M`
-        loses its jaggedness.
-
-        A required operation for our sector-wise read.  Each sector has a varying amount of beams over time, so the
-        resulting number of values per ping (beam pointing angle for example) will differ between pings.  Here we make
-        these ragged arrays square, by using the padval to fill in the holes.
-
-        A padval of 999 is arbitrary, but we use that nodatavalue in kluster to reform pings and do processing, so
-        leave at 999 for Kluster.  maxlen is the max number of expected beams per sector.
-        returns: Z, square array padded with padval where arr is ragged
-        """
-
-        # override the dynamic length of beams across records by applying static length limit.
-        # ideally this should cover all cases
-        if override_type is not None:
-            typ = override_type
-        else:
-            typ = arr[0].dtype
-
-        Z = np.full((len(arr), maxlen), padval, dtype=typ)
-        for enu, row in enumerate(arr):
-            # some records being read have NaNs in them unexpectedly, like part of the record isn't being read
-            row[np.isnan(row)] = 0
-            if detectioninfo:
-                Z[enu, :len(row)] = self.translate_detectioninfo(row)
-            else:
-                Z[enu, :len(row)] = row
-        return Z
+            return rec
 
     def _build_sequential_read_categories(self):
         """
@@ -3607,9 +3629,9 @@ class kmall():
                                    'sample.KMdefault.latitude_deg', 'sample.KMdefault.longitude_deg',
                                    'sample.KMdefault.ellipsoidHeight_m'],
                            'IIP': ['header.dgtime', 'install_txt'],
-                           'MRZ': ['header.dgtime', 'cmnPart.pingCnt', 'cmnPart.rxTransducerInd',
+                           'MRZ': ['header.dgtime', 'cmnPart.pingCnt',
                                    'pingInfo.soundSpeedAtTxDepth_mPerSec', 'pingInfo.numTxSectors', 'header.systemID',
-                                   'txSectorInfo.txSectorNumb', 'txSectorInfo.tiltAngleReTx_deg',
+                                   'txSectorInfo.tiltAngleReTx_deg',
                                    'txSectorInfo.sectorTransmitDelay_sec', 'txSectorInfo.centreFreq_Hz',
                                    'sounding.beamAngleReRx_deg', 'sounding.txSectorNumb', 'sounding.detectionType',
                                    'sounding.qualityFactor', 'sounding.twoWayTravelTime_sec',
@@ -3627,18 +3649,16 @@ class kmall():
                                               'sample.KMdefault.ellipsoidHeight_m': [['navigation', 'altitude']]},
                                       'MRZ': {'header.dgtime': [['ping', 'time']],
                                               'cmnPart.pingCnt': [['ping', 'counter']],
-                                              'cmnPart.rxTransducerInd': [['ping', 'rxid']],
                                               'pingInfo.soundSpeedAtTxDepth_mPerSec': [['ping', 'soundspeed']],
                                               'pingInfo.numTxSectors': [['ping', 'ntx']],
                                               'header.systemID': [['ping', 'serial_num']],
-                                              'txSectorInfo.txSectorNumb': [['ping', 'txsectorid']],
                                               'txSectorInfo.tiltAngleReTx_deg': [['ping', 'tiltangle']],
                                               'txSectorInfo.sectorTransmitDelay_sec': [['ping', 'delay']],
                                               'txSectorInfo.centreFreq_Hz': [['ping', 'frequency']],
                                               'sounding.beamAngleReRx_deg': [['ping', 'beampointingangle']],
                                               'sounding.txSectorNumb': [['ping', 'txsector_beam']],
                                               'sounding.detectionType': [['ping', 'detectioninfo']],
-                                              'sounding.qualityFactor': [['ping', 'qualityfactor_percent']],
+                                              'sounding.qualityFactor': [['ping', 'qualityfactor']],
                                               'sounding.twoWayTravelTime_sec': [['ping', 'traveltime']],
                                               'pingInfo.modeAndStabilisation': [['ping', 'yawpitchstab']],
                                               'pingInfo.pulseForm': [['ping', 'mode']],
@@ -3655,10 +3675,10 @@ class kmall():
             'attitude': {'time': None, 'roll': None, 'pitch': None, 'heave': None, 'heading': None},
             'installation_params': {'time': None, 'serial_one': None, 'serial_two': None,
                                     'installation_settings': None},
-            'ping': {'time': None, 'counter': None, 'rxid': None, 'soundspeed': None, 'ntx': None,
-                     'serial_num': None, 'txsectorid': None, 'tiltangle': None, 'delay': None,
+            'ping': {'time': None, 'counter': None, 'soundspeed': None, 'ntx': None,
+                     'serial_num': None, 'tiltangle': None, 'delay': None,
                      'frequency': None, 'beampointingangle': None, 'txsector_beam': None,
-                     'detectioninfo': None, 'qualityfactor_percent': None, 'traveltime': None, 'mode': None,
+                     'detectioninfo': None, 'qualityfactor': None, 'traveltime': None, 'mode': None,
                      'modetwo': None, 'yawpitchstab': None},
             'runtime_params': {'time': None, 'runtime_settings': None},
             'profile': {'time': None, 'depth': None, 'soundspeed': None},
@@ -3666,20 +3686,19 @@ class kmall():
 
         return recs_categories, recs_categories_translator, recs_categories_result
 
-    def _finalize_records(self, recs_to_read, recs_count):
+    def _finalize_records(self, recs_to_read, recs_count, serial_translator=None):
         """
         Take output from sequential_read_records and alter the type/size/translate as needed for Kluster to read and
         convert to xarray.  Major steps include
         - adding empty arrays so that concatenation later on will work
-        - pad_to_dense to convert the ragged sector-wise arrays into square numpy arrays
         - translate the runtime parameters from integer/binary codes to string identifiers for easy reading (and to
              allow comparing results between different file types)
+        - convert systemID to serial number if serial_translator is provided (as dict {systemid: serialnum})
         returns: recs_to_read, dict of dicts finalized
         """
-        # drop the delay array and txsector_beam array since we've already used it for adjusting ping time and building
-        #    sector masks
-        recs_to_read['ping'].pop('delay')
-        recs_to_read['ping'].pop('txsector_beam')
+
+        # ping records aren't sorted for some reason, have to do that here
+        idx = np.argsort(recs_to_read['ping']['time'])
 
         # need to force in the serial number, its not in the header anymore with these kmall files...
         if recs_to_read['installation_params']['installation_settings'] is not None:
@@ -3698,14 +3717,12 @@ class kmall():
                     else:
                         # found no records, empty array of strings for the mode/stab records
                         recs_to_read[rec][dgram] = np.zeros(0, 'U2')
-                elif rec == 'ping':
-                    if dgram in ['beampointingangle', 'traveltime', 'qualityfactor_percent']:
-                        # these datagrams can vary in number of beams, have to pad with 999 for 'jaggedness'
-                        recs_to_read[rec][dgram] = self._pad_to_dense(recs_to_read[rec][dgram])
-                    elif dgram in ['detectioninfo', 'qualityfactor']:
-                        # same for detection info, but it also needs to be converted to something other than int8
-                        recs_to_read[rec][dgram] = self._pad_to_dense(recs_to_read[rec][dgram], override_type=np.int)
-                    elif dgram == 'yawandpitchstabilization':
+                elif rec in ['navigation', 'attitude']:  # these recs have time blocks of data in them, need to be concatenated
+                    recs_to_read[rec][dgram] = np.concatenate(recs_to_read[rec][dgram])
+                elif rec == 'ping':  # use the argsort indices here to sort by time
+                    if dgram in ['detectioninfo', 'qualityfactor']:
+                        recs_to_read[rec][dgram] = np.array(recs_to_read[rec][dgram], dtype=np.int32)
+                    elif dgram == 'yawpitchstab':
                         recs_to_read[rec][dgram] = self.translate_yawpitch_tostring(np.array(recs_to_read[rec][dgram]))
                     elif dgram == 'mode':
                         recs_to_read[rec][dgram] = self.translate_mode_tostring(np.array(recs_to_read[rec][dgram]))
@@ -3713,16 +3730,56 @@ class kmall():
                         recs_to_read[rec][dgram] = self.translate_mode_two_tostring(np.array(recs_to_read[rec][dgram]))
                     else:
                         recs_to_read[rec][dgram] = np.array(recs_to_read[rec][dgram])
-                elif rec in ['navigation', 'attitude']:  # these recs have time blocks of data in them, need to be concatenated
-                    recs_to_read[rec][dgram] = np.concatenate(recs_to_read[rec][dgram])
+                    recs_to_read[rec][dgram] = recs_to_read[rec][dgram][idx]
                 else:
                     recs_to_read[rec][dgram] = np.array(recs_to_read[rec][dgram])
+
+        # kmall no longer has serial number in header, only systemid which is the last octet of the ip address.
+        #  translate that number to serial number
+        if serial_translator is not None:
+            if len(serial_translator) > 1:
+                raise NotImplementedError(
+                    'Only one serial number can exist for _finalize_records to work, dual head' + \
+                    'not supported in kmall format yet')
+            for sysid in serial_translator:
+                id_match = np.where(recs_to_read['ping']['serial_num'] == int(sysid))[0]
+                recs_to_read['ping']['serial_num'][id_match] = int(serial_translator[sysid])
+        
+        # finding spikes in SKM time, have to identify and remove (attitude and navigation come from SKM)
+        dif = np.diff(recs_to_read['attitude']['time'])
+        spikes = np.count_nonzero(dif < 0)
+        if spikes:
+            print('Removing {} spikes found in SKM record...'.format(spikes))
+            spike_index = np.where(dif < 0)[0]
+            for cnt, spk in enumerate(spike_index):
+                if recs_to_read['attitude']['time'][spk - 1] > recs_to_read['attitude']['time'][spk + 1]:
+                    # negative spike
+                    spike_index[cnt] = spk + 1
+                else:
+                    # positive spike
+                    spike_index[cnt] = spk
+            for rec_type in ['time', 'roll', 'pitch', 'heading', 'heave']:
+                recs_to_read['attitude'][rec_type] = np.delete(recs_to_read['attitude'][rec_type], spike_index)
+            for rec_type in ['time', 'latitude', 'longitude', 'altitude']:
+                recs_to_read['navigation'][rec_type] = np.delete(recs_to_read['navigation'][rec_type], spike_index)
+
+        recs_to_read['ping']['processing_status'] = np.zeros_like(recs_to_read['ping']['beampointingangle'], dtype=np.uint8)
+
+        # hack here to ensure that we don't have duplicate times across chunks, modify the last time slightly.
+        #   next chunk might include a duplicate time
+        if recs_to_read['ping']['time'].any():
+            recs_to_read['ping']['time'][0] += 0.000010
+            if recs_to_read['ping']['serial_num'][0] != recs_to_read['ping']['serial_num'][1]:
+                recs_to_read['ping']['time'][1] += 0.000010
         return recs_to_read
 
-    def sequential_read_records(self, start_ptr=0, end_ptr=0, first_installation_rec=False):
+    def sequential_read_records(self, start_ptr=0, end_ptr=0, first_installation_rec=False, serial_translator=None):
         """
         Read the file and return a dict of the wanted records/fields according to recs_categories.  If start_ptr/end_ptr
         is provided, start and end at those byte offsets.
+
+        If a serial_translator is provided (as a dictionary) use it to translate the systemid (the last octet of the
+        system ip address) to the actual serial number for kluster to use
 
         returns: recs_to_read, dict of dicts for each desired record read sequentially, see recs_categories
         """
@@ -3751,8 +3808,8 @@ class kmall():
                 recs_count[rec_ident[0]] += 1
 
             rec = self.datagram_data
-            recs = self._divide_rec(rec)  # split up the MRZ record for multiple sectors, otherwise just returns [rec]
-            for rec in recs:
+            rec = self._populate_rec(rec)
+            if rec is not None:
                 for subrec in recs_categories[self.datagram_ident]:
                     #  override for nested recs, designated with periods in the recs_to_read dict
                     if subrec.find('.') > 0:
@@ -3782,7 +3839,8 @@ class kmall():
                             recs_to_read[translated[0]][translated[1]].extend(val)
             if self.datagram_ident == 'IIP' and first_installation_rec:
                 self.eof = True
-        recs_to_read = self._finalize_records(recs_to_read, recs_count)
+        recs_to_read = self._finalize_records(recs_to_read, recs_count, serial_translator=serial_translator)
+        recs_to_read['format'] = 'kmall'
         return recs_to_read
 
     def translate_yawpitch_tostring(self, arr):
@@ -3879,7 +3937,7 @@ class kmall():
         for entry in entries:
             if entry and (entry.find(':') != -1):  # valid entries look like 'key: value', the rest are headers or blank
                 key, value = entry.split(':')
-                translated[key] = value.lstrip().rstrip()
+                translated[key.lstrip().rstrip()] = value.lstrip().rstrip()
         return translated
 
     def translate_installation_parameters_todict(self, i_text):
@@ -3924,7 +3982,7 @@ class kmall():
                             'IRX=': '_rx_forward', 'IRY=': '_rx_starboard', 'IRZ=': '_rx_down', 'D=': '_time_delay',
                             'G=': '_datum', 'T=': '_time_stamp', 'C=': '_motion_compensation', 'F=': '_data_format',
                             'Q=': '_quality_check', 'I=': '_input_source', 'U=': '_active_passive',
-                            'M=': 'motion_reference', 'A=': '_1pps'}
+                            'M=': '_motion_reference', 'A=': '_1pps'}
 
         # split by comma delimited groups
         records = [i_text.split(',') for i_text in i_text.split('\n')]
@@ -3983,7 +4041,6 @@ class kmall():
                     translated['active_position_system_number'] = 'position_' + pos_sens[9]  # 'position_1'
         return translated
 
-
     def fast_read_start_end_time(self):
         """
         Get the start and end time for the file without mapping the file
@@ -3992,9 +4049,11 @@ class kmall():
         self.datagram_data = None
         self.eof = False
 
-        if self.FID is None:
+        if self.FID is None:  # open file and start at beginning
+            current_pointer = None
             self.OpenFiletoRead()
-        else:
+        else:  # save the current file position and start at beginning, resume old position after method ends
+            current_pointer = self.FID.tell()
             self.FID.seek(0)
 
         start_time = None
@@ -4009,20 +4068,104 @@ class kmall():
             except:
                 continue
 
-        # pick 10k of reading just to make sure you get some valid records, or the filelength if it is less than that
-        self.FID.seek(0)
-        chunksize = min(10 * 1024, self.FID.tell())
+        # pick 100k of reading just to make sure you get some valid records, or the filelength if it is less than that
+        # (used to be 10k, but MRZ is a huge datagram)
+        self.eof = False
+        self.FID.seek(0, 2)
+        chunksize = min(100 * 1024, self.FID.tell())
         self.FID.seek(-chunksize, 2)
         self.seek_next_startbyte(chunksize, self.FID.tell())
         while not self.eof:
-            self.decode_datagram()
-            self.read_datagram()
             try:
+                self.decode_datagram()
+                self.read_datagram()
                 end_time = self.datagram_data['header']['dgtime']
-                break
             except:
-                continue
+                self.eof = True  # read_datagram fails at end of file
+        self.eof = False
+        if current_pointer is not None:
+            self.FID.seek(current_pointer)
+        else:
+            self.FID.seek(0)
         return [start_time, end_time]
+
+    def fast_read_serial_number(self):
+        """
+        Get the serial numbers and model number of the provided file
+        returns: list, [serialnumber: int, secondaryserialnumber: int, sonarmodelnumber: str]
+        """
+
+        self.datagram_data = None
+        self.eof = False
+
+        if self.FID is None:  # open file and start at beginning
+            current_pointer = None
+            self.OpenFiletoRead()
+        else:  # save the current file position and start at beginning, resume old position after method ends
+            current_pointer = self.FID.tell()
+            self.FID.seek(0)
+
+        rec = self.read_first_datagram('IIP')
+        if rec is None:
+            raise ValueError('kmall: Unable to find installation parameters in file {}'.format(self.filename))
+
+        try:
+            serialnumber = int(rec['install_txt']['pu_serial_number'])
+            serialnumbertwo = 0  # currently there is no support for dual head in kmall files
+        except:
+            raise ValueError('Error: Unable to find pu_serial_number in kmall IIP install_txt')
+        try:
+            sonarmodel = rec['install_txt']['sonar_model_number'].lower()
+        except:
+            raise ValueError('Error: Unable to find sonar_model_number in kmall IIP install_txt')
+
+        self.eof = False
+        if current_pointer is not None:
+            self.FID.seek(current_pointer)
+        else:
+            self.FID.seek(0)
+        return [serialnumber, serialnumbertwo, sonarmodel]
+
+    def fast_read_serial_number_translator(self):
+        """
+        read the first IIP datagram, translating the install parameters text, and pull out the serial number and system
+        id numbers.  SystemID in kmall terms is the last octet of the system serial number.  That string looks something
+        like this:
+        install_params['install_txt']['ip_address_subnet_mask'] = '157.237.20.40:0xffff0000'
+
+        where the serial number looks like:
+        install_params['install_txt']['pu_serial_number'] = '53011'
+
+        the result of this example would be a dictionary like:
+        {40: 53011}
+
+        Expect this all to change when dual head systems are added and the install params txt changes
+        """
+
+        self.datagram_data = None
+        self.eof = False
+
+        if self.FID is None:  # open file and start at beginning
+            current_pointer = None
+            self.OpenFiletoRead()
+        else:  # save the current file position and start at beginning, resume old position after method ends
+            current_pointer = self.FID.tell()
+            self.FID.seek(0)
+
+        install_params = self.read_first_datagram('IIP')
+        if install_params is None:
+            raise ValueError('kmall: Unable to find installation parameters in file {}'.format(self.filename))
+
+        sys_id = install_params['install_txt']['ip_address_subnet_mask'].split('.')[3].split(':')[0]
+        serial_num = install_params['install_txt']['pu_serial_number']
+
+        self.eof = False
+        if current_pointer is not None:
+            self.FID.seek(current_pointer)
+        else:
+            self.FID.seek(0)
+
+        return {int(sys_id): int(serial_num)}
 
 
 def main(args=None):
