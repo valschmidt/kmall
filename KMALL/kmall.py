@@ -18,7 +18,6 @@ import copy
 from pyproj import Proj
 from scipy import stats
 
-
 class kmall():
     """ A class for reading a Kongsberg KMALL data file. """
 
@@ -35,7 +34,9 @@ class kmall():
         
         self.datagram_ident_search = self._build_startbytesearch()
         self.read_methods = [method_name for method_name in dir(self) if method_name[0:4] == 'read']
-        
+
+        self.dgmVersion = None  # Set when dgmHeader is read for subsequent use.
+
         self.datagram_ident = None
         self.datagram_data = None
         self.read_method = None
@@ -202,6 +203,7 @@ class kmall():
         dg['dgmType'] = fields[1]
         # Datagram version.
         dg['dgmVersion'] = fields[2]
+        self.dgmVersion = dg['dgmVersion']
         # System ID. Parameter used for separating datagrams from different echosounders
         # if more than one system is connected to SIS/K-Controller.
         dg['systemID'] = fields[3]
@@ -421,8 +423,11 @@ class kmall():
         # LMD tested.
 
         dg = {}
-        format_to_unpack_a = "2H1f6B1H11f2h2B1H1I3f2H1f2H6f4B"
-        fields = struct.unpack(format_to_unpack_a, self.FID.read(struct.Struct(format_to_unpack_a).size))
+        bytesread = 0
+
+        format_to_unpack = "2H1f6B1H11f2h2B1H1I3f2H1f2H6f4B"
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+        bytesread += struct.Struct(format_to_unpack).size
 
         # Number of bytes in current struct.
         dg['numBytesInfoData'] = fields[0]
@@ -560,8 +565,9 @@ class kmall():
         dg['padding3'] = fields[44]
 
         # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
-        format_to_unpack_b = "2d1f"
-        fields = struct.unpack(format_to_unpack_b, self.FID.read(struct.Struct(format_to_unpack_b).size))
+        format_to_unpack = "2d1f"
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+        bytesread += struct.Struct(format_to_unpack).size
 
         # Latitude (decimal degrees) of vessel reference point at time of midpoint of first tx pulse.
         # Negative on southern hemisphere. Parameter is set to define UNAVAILABLE_LATITUDE if not available.
@@ -574,9 +580,22 @@ class kmall():
         # of the position sensor.
         dg['ellipsoidHeightReRefPoint_m'] = fields[2]
 
+        if self.dgmVersion >= 1:
+            format_to_unpack = "f2B"
+            fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+            bytesread += struct.Struct(format_to_unpack).size
+            dg['bsCorrectionOffset_dB'] = fields[0]
+            dg['lambertsLawApplied'] = fields[1]
+            dg['iceWindow'] = fields[2]
+
+        if self.dgmVersion >= 2:
+            format_to_unpack = "H"
+            fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+            bytesread += struct.Struct(format_to_unpack).size
+            dg['activeModes'] = fields[0]
+
         # Skip unknown fields.
-        self.FID.seek(dg['numBytesInfoData'] - struct.Struct(format_to_unpack_a).size
-                      - struct.Struct(format_to_unpack_b).size, 1)
+        self.FID.seek(dg['numBytesInfoData'] - bytesread, 1)
 
         if self.verbose > 2:
             self.print_datagram(dg)
@@ -629,6 +648,14 @@ class kmall():
         dg['signalWaveForm'] = fields[12]
         # Byte alignment.
         dg['padding1'] = fields[13]
+
+        if self.dgmVersion >= 1:
+            format_to_unpack = "3f"
+            fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+
+            dg['highVoltageLevel_dB'] = fields[0]
+            dg['sectorTrackingCorr_dB'] = fields[1]
+            dg['effectiveSignalLength_sec'] = fields[2]
 
         if self.verbose > 2:
             self.print_datagram(dg)
@@ -2008,7 +2035,8 @@ class kmall():
         # the datagram is converted from another type and
         # the old type is still set.
         dg['header']['dgmType'] = b'#MRZ'
-
+        # Set the dgmVersion so the correct version of the data is written.
+        self.dgmVersion = dg['header']['dgmVersion']
         self.write_EMdgmHeader(dg['header'])
         self.write_EMdgmMpartition(dg['partition'])
         self.write_EMdgmMbody(dg['cmnPart'])
@@ -2139,9 +2167,10 @@ class kmall():
         write_EMdgmMRZ_pingInfo(FID, dg['pinginfo'])
 
         '''
-
-        format_to_pack_a = "<2H1f6B1H11f2h2B1H1I3f2H1f2H6f4B"
-        self.FID.write(struct.pack(format_to_pack_a,
+        bytes_written = 0
+        format_to_pack = "<2H1f6B1H11f2h2B1H1I3f2H1f2H6f4B"
+        bytes_written += struct.Struct(format_to_pack).size
+        self.FID.write(struct.pack(format_to_pack,
                                    dg['numBytesInfoData'],
                                    dg['padding0'],
                                    dg['pingRate_Hz'],
@@ -2189,11 +2218,32 @@ class kmall():
                                    dg['padding3']))
 
         # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
-        format_to_pack_b = "<2d1f"
-        self.FID.write(struct.pack(format_to_pack_b,
+        format_to_pack = "<2d1f"
+        bytes_written += struct.Struct(format_to_pack).size
+        self.FID.write(struct.pack(format_to_pack,
                                    dg['latitude_deg'],
                                    dg['longitude_deg'],
                                    dg['ellipsoidHeightReRefPoint_m']))
+
+        if self.dgmVersion >= 1:
+            format_to_pack = "f2B"
+            bytes_written += struct.Struct(format_to_pack).size
+            self.FID.write(struct.pack(format_to_pack,
+                                       dg['bsCorrectionOffset_dB'],
+                                       dg['lambertsLawApplied'],
+                                       dg['iceWindow']))
+
+        if self.dgmVersion >= 2:
+            format_to_pack = "H"
+            bytes_written += struct.Struct(format_to_pack).size
+            self.FID.write(struct.pack(format_to_pack,
+                                       dg['activeModes']))
+
+        # Write pad bytes to fill out the packet size.
+        # This seems stupid since I'm trying to reduce the packet size
+        format_to_pack = str(int(dg['numBytesInfoData'])-bytes_written) + 'x'
+        self.FID.write(struct.pack(format_to_pack))
+
 
     def write_EMdgmMRZ_txSectorInfo(self, dg, sector):
         ''' Write MRZ txSectorInfo for single index "sector".
@@ -2218,6 +2268,13 @@ class kmall():
                                    dg['pulseShading'][sector],
                                    dg['signalWaveForm'][sector],
                                    dg['padding1'][sector]))
+
+        if self.dgmVersion >= 1:
+            format_to_pack = "3f"
+            self.FID.write(struct.pack(format_to_pack,
+                                       dg['highVoltageLevel_dB'][sector],
+                                       dg['sectorTrackingCorr_dB'][sector],
+                                       dg['effectiveSignalLength_sec'][sector]))
 
     def write_EMdgmMRZ_rxInfo(self, dg):
         ''' Write MRZ rxInfo datagram.
@@ -2414,11 +2471,11 @@ class kmall():
 
         valuesToEncode = np.diff(A.flatten())
 
-        maxv = np.max(valuesToEncode)
-        minv = np.min(valuesToEncode)
+        maxv = np.nanmax(valuesToEncode)
+        minv = np.nanmin(valuesToEncode)
 
-        maxA = np.max(A)
-        minA = np.min(A)
+        maxA = np.nanmax(A)
+        minA = np.nanmin(A)
 
         # print("maxvaluesToEncode:%f, minvaluesToEncode:%f" % (maxv,minv))
         # print("maxA:%f, minA:%f" % (maxA,minA))
@@ -2454,6 +2511,11 @@ class kmall():
                 scaleFactor = 65535.0 / (maxv - minv)
             else:
                 scaleFactor = 4294967295.0 / (maxv - minv)
+
+        # It is not clear why NaNs sometimes show up in some fields, but they do.
+        # Here I set NaN values to the minimum value arbitrary until I figure out
+        # a better strategy. Not a good way to handle this. Interpolate them?
+        valuesToEncode[np.isnan(valuesToEncode)] = minv
 
         tmp = (((valuesToEncode - minv) * scaleFactor)).astype(int)
 
@@ -2901,6 +2963,10 @@ class kmall():
         ''' A method to write a new datagram compressing teh soundings and
         omitting the imagery data.'''
 
+        # Set the datagram version for the original MRZ datagram type
+        # So it can be written properly below.
+        self.dgmVersion = dg['header']['dgmVersion']
+
         # First we need to see how much space the imagery data will take.
         # And set the number of imagery samples per sounding field to zero.
         Nseabedimage_samples = 0
@@ -3339,6 +3405,35 @@ class kmall():
             lon = np.concatenate([lon, dg['pingInfo']['longitude_deg'] + np.array(dg['sounding']['deltaLongitude_deg'])])
 
         return (lon.flatten(),lat.flatten(),z.flatten())
+
+    def printLonLatZ(self):
+        """ A method to print Longitude, Latitude and Depth for each sounding."""
+
+        if self.Index is None:
+            self.index_file()
+
+        if self.FID is None:
+            self.OpenFiletoRead()
+
+        # M = map( lambda x: x=="b'#MRZ'", self.msgtype)
+        # MRZOffsets = self.msgoffset[list(M)]
+
+        # Get the file byte count offset for each MRZ datagram.
+        MRZOffsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#MRZ'"]
+
+        for offset in MRZOffsets:
+            self.FID.seek(offset, 0)
+            dg = self.read_EMdgmMRZ()
+
+            for idx in np.arange(len(dg['sounding']['z_reRefPoint_m'])):
+
+                z = dg['sounding']['z_reRefPoint_m'][idx] - dg['pingInfo']['z_waterLevelReRefPoint_m']
+                lat = dg['sounding']['deltaLatitude_deg'][idx] + dg['pingInfo']['latitude_deg']
+                lon = dg['sounding']['deltaLongitude_deg'][idx] + dg['pingInfo']['longitude_deg']
+                #print("0.9f, %0.9f, %0.3f" % (lat, lon, z))
+                print("{0:0.9f}, {1:0.9f}, {2:0.3f}".format(lat,lon,z))
+
+
 
     def check_ping_count(self):
         """ A method to check to see that all required MRZ datagrams exist """
@@ -4038,6 +4133,8 @@ def main(args=None):
                         help="The path and filename to parse.")
     parser.add_argument('-d', action='store', dest='kmall_directory',
                         help="A directory containing kmall data files to parse.")
+    parser.add_argument('-p', action='store_true', dest='printLatLonZ',
+                        default=False, help="Print Latitude, Longitude, Depth")
     parser.add_argument('-V', action='store_true', dest='verify',
                         default=False, help="Perform series of checks to verify the kmall file.")
     parser.add_argument('-z', action='store_true', dest='compress',
@@ -4064,6 +4161,7 @@ def main(args=None):
     compress = args.compress
     decompress = args.decompress
     compressionLevel = args.compressionLevel
+    printLatLonZ = args.printLatLonZ
 
     validCompressionLevels = [0, 1]
     if compressionLevel not in validCompressionLevels:
@@ -4104,6 +4202,11 @@ def main(args=None):
 
         # Index file (check for index)
         K.index_file()
+
+        # Print Latitude Longitude and Depth.
+        if printLatLonZ:
+            K.printLonLatZ()
+            return
 
         ## Do packet verification if requested.
         pingcheckdata = []
