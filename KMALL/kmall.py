@@ -4119,6 +4119,32 @@ class kmall():
                 continue
         return [start_time, end_time]
 
+    def extractRuntimeParameters(self):
+        ''' Extract Runtime Parameters from IOP messages into a table.'''
+        IOP=[]
+        if self.Index is None:
+            self.index_file()
+        IOPdgs = self.Index[self.Index['MessageType'] == "b'#IOP'"]
+        for index, row in IOPdgs.iterrows():
+            self.FID.seek(row['ByteOffset'])
+
+            self.decode_datagram()
+            self.read_datagram()
+            IOP.append(self.datagram_data['runtime_txt'])
+
+        IOPd = self.listofdicts2dictoflists(IOP)
+        return pd.DataFrame(IOPd)
+
+def extractRuntimeParametersfromdir(directory=None):
+    IOP=[]
+    for file in os.listdir(directory):
+        print(file)
+        if file[-5:] == 'kmall':
+            K = kmall(filename=os.path.join(directory,file))
+            K.index_file()
+            IOP.append(K.extractRuntimeParameters())
+    print(len(IOP))
+    return pd.concat(IOP)
 
 def main(args=None):
     ''' Commandline script code.'''
@@ -4147,6 +4173,8 @@ def main(args=None):
                         default=False, help=("Decompress a file compressed with this library. " +
                                              "Files must end in .Lz, where L is an integer indicating " +
                                              "the compression level (set by -l when compresssing)"))
+    parser.add_argument('-r',action='store_true', dest='runtimeparams',
+                        default=False, help = ("Extract runtime parameters from file or directory of files."))
 
     parser.add_argument('-v', action='count', dest='verbose', default=0,
                         help="Increasingly verbose output (e.g. -v -vv -vvv),"
@@ -4162,6 +4190,9 @@ def main(args=None):
     decompress = args.decompress
     compressionLevel = args.compressionLevel
     printLatLonZ = args.printLatLonZ
+    runtimeparams = args.runtimeparams
+
+    runtimeData = []
 
     validCompressionLevels = [0, 1]
     if compressionLevel not in validCompressionLevels:
@@ -4372,6 +4403,37 @@ def main(args=None):
 
             T.closeFile()
             K.closeFile()
+
+        ## Extract Runtime Parameters from Files or Directories of them.
+
+        if runtimeparams:
+            runtimeData.append(K.extractRuntimeParameters())
+
+        ###########################################################################
+        # End file processing loop
+        ###########################################################################
+
+    # Process and print runtime parameters.
+    if len(runtimeData) > 1:
+        runtimeData = pd.concat(runtimeData)
+
+
+    if runtimeparams:
+        if kmall_directory is not None:
+            basename = os.path.basename(kmall_directory)
+            if basename == '':
+                basename = os.path.dirname(kmall_directory)
+            runtimeData.to_csv('RuntimeParameters_' + basename + '.csv')
+
+        elif kmall_filename is not None:
+            for key in runtimeData.keys():
+                print(key + ' : ', end = '')
+                for index,row in runtimeData.iterrows():
+                    print(row[key], end= ' ')
+                print("")
+
+
+
 
 if __name__ == '__main__':
     sys.exit(main())
