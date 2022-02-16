@@ -3406,6 +3406,57 @@ class kmall():
 
         return (lon.flatten(),lat.flatten(),z.flatten())
 
+    def extractPingInfo(self):
+        ''' A method to print the pingInfo details of each ping.'''
+        if self.Index is None:
+            self.index_file()
+
+        if self.FID is None:
+            self.OpenFiletoRead()
+
+        # Get the file byte count offset for each MRZ datagram.
+        MRZOffsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#MRZ'"]
+
+        firstPing = True
+        # loop through ping records.
+        for offset in MRZOffsets:
+            self.FID.seek(offset, 0)
+            dg = self.read_EMdgmMRZ()
+            # For the first ping, init the dictionary of fields to extract
+            # with data from the first pingInfo record and XYZ.
+            # TODO: Add timestamp!
+            if firstPing:
+                firstPing = False
+                data = dg['pingInfo']
+                nadirIDX = np.floor(len(dg['sounding']['z_refPoint_m'])/2.0) - 1
+                for key in data.keys():
+                    data[key] = np.array([data[key]])
+                data['dgtime'] = np.array([dg['header']['dgtime']])
+                data['nadirZ'] = np.array(dg['sounding']['z_reRefPoint_m'][nadirIDX]) - dg['pingInfo']['z_waterLevelReRefPoint_m']
+                data['lat'] = np.array(dg['pingInfo']['latitude_deg']) + np.array(dg['sounding']['deltaLatitude_deg'][nadirIDX])
+                data['lon'] = np.array(dg['pingInfo']['longitude_deg']) + np.array(dg['sounding']['deltaLongitude_deg'][nadirIDX])
+
+            # Concatenate new data from subsequent pings.
+            for key in dg.keys():
+                data[key] = np.concatinate([data[key],
+                                            dg[key]])
+            data['dgtime'] = np.concatenate([data['dgtime'], dg['header']['dgtime']])
+            data['nadirZ'] = np.concatenate([data['nadirZ'],
+                                             np.array(dg['sounding']['z_reRefPoint_m'][nadirIDX]) -
+                                             dg['pingInfo']['z_waterLevelReRefPoint_m']])
+            data['lat'] = np.concatenate([data['lat'],
+                                          np.array(dg['pingInfo']['latitude_deg']) +
+                                          np.array(dg['sounding']['deltaLatitude_deg'][nadirIDX])])
+            data['lon'] = np.concatenate([data['lon'],
+                                          np.array(dg['pingInfo']['longitude_deg']) +
+                                          np.array(dg['sounding']['deltaLongitude_deg'][nadirIDX])])
+        # Force into columns.
+        for key in data.keys():
+            data[key] = data[key].flatten()
+
+        return data
+
+
     def printLonLatZ(self):
         """ A method to print Longitude, Latitude and Depth for each sounding."""
 
@@ -4130,21 +4181,39 @@ class kmall():
 
             self.decode_datagram()
             self.read_datagram()
+            # read_datagrams() has a special feature that will parse the text in
+            # this record into a dictionary stored in runtime_txt. But it does
+            # not capture the file name nor the timestamp of the record from the 
+            # header so we capture it (in unix epoch and human readable format 
+            # here. 
+            self.datagram_data['runtime_txt']['File'] = self.filename
+            self.datagram_data['runtime_txt']['dgtime'] = self.datagram_data['header']['dgtime']
+            self.datagram_data['runtime_txt']['dgdatetime'] = self.datagram_data['header']['dgdatetime']
             IOP.append(self.datagram_data['runtime_txt'])
 
         IOPd = self.listofdicts2dictoflists(IOP)
-        return pd.DataFrame(IOPd)
+        IOPdf = pd.DataFrame(IOPd)
+        IOPdf.set_index('File',inplace=True)
+        return IOPdf
 
-def extractRuntimeParametersfromdir(directory=None):
-    IOP=[]
-    for file in os.listdir(directory):
-        print(file)
-        if file[-5:] == 'kmall':
-            K = kmall(filename=os.path.join(directory,file))
-            K.index_file()
-            IOP.append(K.extractRuntimeParameters())
-    print(len(IOP))
-    return pd.concat(IOP)
+    def extractPingInfo(self):
+        ''' Extract Ping Info from each ping in a file as a Pandas Dataframe'''
+        pingInfo=[]
+        if self.Index is None:
+            self.index_file()
+        IOPdgs = self.Index[self.Index['MessageType'] == "b'#MRZ'"]
+        for index, row in IOPdgs.iterrows():
+            self.FID.seek(row['ByteOffset'])
+            dg = self.read_EMdgmMRZ()
+            dg['pingInfo']['File'] = self.filename
+            dg['pingInfo']['dgtime'] = dg['header']['dgtime']
+            dg['pingInfo']['dgdatetime'] = dg['header']['dgdatetime']
+            pingInfo.append(dg['pingInfo'])
+
+        pingInfod = self.listofdicts2dictoflists(pingInfo)
+        pingInfodf = pd.DataFrame(pingInfod)
+        pingInfodf.set_index('File',inplace=True)
+        return pingInfodf
 
 def main(args=None):
     ''' Commandline script code.'''
@@ -4175,7 +4244,8 @@ def main(args=None):
                                              "the compression level (set by -l when compresssing)"))
     parser.add_argument('-r',action='store_true', dest='runtimeparams',
                         default=False, help = ("Extract runtime parameters from file or directory of files."))
-
+    parser.add_argument('-i', action='store_true', dest='extractpinginfo',
+                        default=False, help=("Extract pinginfo from a file to stdout."))
     parser.add_argument('-v', action='count', dest='verbose', default=0,
                         help="Increasingly verbose output (e.g. -v -vv -vvv),"
                              "for debugging use -vvv")
@@ -4191,6 +4261,7 @@ def main(args=None):
     compressionLevel = args.compressionLevel
     printLatLonZ = args.printLatLonZ
     runtimeparams = args.runtimeparams
+    extractpinginfo = args.extractpinginfo
 
     runtimeData = []
 
@@ -4409,12 +4480,16 @@ def main(args=None):
         if runtimeparams:
             runtimeData.append(K.extractRuntimeParameters())
 
+        if extractpinginfo:
+            pinginfo = K.extractPingInfo()
+            pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
+
         ###########################################################################
         # End file processing loop
         ###########################################################################
 
     # Process and print runtime parameters.
-    if len(runtimeData) > 1:
+    if runtimeData.__len__() != 0:
         runtimeData = pd.concat(runtimeData)
 
 
@@ -4431,7 +4506,9 @@ def main(args=None):
                 for index,row in runtimeData.iterrows():
                     print(row[key], end= ' ')
                 print("")
-
+                
+            runtimeData.to_csv('RuntimeParameters_' + 
+                    os.path.basename(K.filename[:-6]) + '.csv')
 
 
 
