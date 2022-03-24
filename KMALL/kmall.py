@@ -1234,6 +1234,18 @@ class kmall():
                 15      0
         '''
         dg['sensorStatus'] = fields[2]
+        '''SensorStatus:
+                Bits:   Sensor data:
+                0       1=Sensor is chosen as active (#SCL only 1-Valid data and 1PPS OK)
+                1       0
+                2       0 = Data OK, 1 = Reduced Performance, (#SCL only 1 = Red Perf/No time sync)
+                3       0
+                4       0 = Data OK, 1 = Invalid Data
+                5       0
+                6       0 = Velocity from Sensor, 1 = Velocity calculated by PU
+                7       0
+        
+        '''
         dg['padding'] = fields[3]
 
         # Skip unknown fields.
@@ -1362,7 +1374,6 @@ class kmall():
                 5:      Seapath binary 23
                 6:      Seapath binary 26
                 7:      POS/MV Group 102/103
-                8:      Coda Octopus MCOM
         '''
         dg['sensorInputFormat'] = fields[3]
         # Number of KM binary sensor samples added in this datagram.
@@ -1383,7 +1394,7 @@ class kmall():
                     0        Horizontal posistion and velocity
                     1        Roll and pitch
                     2        Heading
-                    3        Heave and vertical velocity
+                    3        Heave (and Velocity for dgmVersion < 2)
                     4        Acceleration
                     5        Error fields
                     6        Delayed Heave
@@ -1465,8 +1476,10 @@ class kmall():
                 2       Heading                             |       18      Heading
                 3       Heave and vertical velocity         |       19      Heave and vertical velocity
                 4       Acceleration                        |       20      Acceleration
-                5       Error fields                        |       21      Error fields
+                5       Error fields  **                    |       21      Error fields **
                 6       Delayed heave                       |       22      Delayed heave
+
+                ** with Rev I, bits 5 and 21 are Delayed heave. 6 and 22 also.
         '''
         dg['status'] = fields[4]
 
@@ -1838,20 +1851,39 @@ class kmall():
         print("WARNING: You are using an incomplete, untested function: read_EMdgmSDEdataFromSensor.")
 
         dg = {}
-        format_to_unpack = "3f2d32s"
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+        if self.dgmVersion == 0:
+            format_to_unpack = "3f2d32s"
+            fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
-        dg['depthUsed_m'] = fields[0]
-        dg['offset'] = fields[1]
-        dg['scale'] = fields[2]
-        dg['latitude_deg'] = fields[3]
-        dg['longitude_deg'] = fields[4]
+            dg['depthUsed_m'] = fields[0]
+            dg['offset'] = fields[1]
+            dg['scale'] = fields[2]
+            dg['latitude_deg'] = fields[3]
+            dg['longitude_deg'] = fields[4]
 
-        # TODO: This is an array of (max?) length MAX_SDE_DATALENGTH; do something else here?
-        # TODO: Get MAX_SDE_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
-        # TODO: Test with depth data to complete this function!
-        tmp = fields[5]
-        # dg['dataFromSensor'] = ...
+            # TODO: This is an array of (max?) length MAX_SDE_DATALENGTH; do something else here?
+            # TODO: Get MAX_SDE_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
+            # TODO: Test with depth data to complete this function!
+            tmp = fields[5]
+            # dg['dataFromSensor'] = ...
+
+        if self.dgmVersion >= 1:
+            format_to_unpack = "4f2d32s"
+            
+            fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+
+            dg['depthUsed_m'] = fields[0]
+            dg['depthRaw_m'] = fields[1]
+            dg['offset'] = fields[2]
+            dg['scale'] = fields[3]
+            dg['latitude_deg'] = fields[4]
+            dg['longitude_deg'] = fields[5]
+
+            # TODO: This is an array of (max?) length MAX_SDE_DATALENGTH; do something else here?
+            # TODO: Get MAX_SDE_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
+            # TODO: Test with depth data to complete this function!
+            tmp = fields[6]
+            # dg['dataFromSensor'] = ...
 
         return dg
 
@@ -4496,8 +4528,9 @@ def main(args=None):
     if runtimeparams:
         if kmall_directory is not None:
             basename = os.path.basename(kmall_directory)
+            # Catch teh case when there's a trailing /
             if basename == '':
-                basename = os.path.dirname(kmall_directory)
+                basename = os.path.basename(kmall_directory[:-1])
             runtimeData.to_csv('RuntimeParameters_' + basename + '.csv')
 
         elif kmall_filename is not None:
