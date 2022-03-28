@@ -3397,8 +3397,26 @@ class kmall():
         #         dg[k] = scalartmp
         #
         # return dg
+
+
+
         if listofdicts:
+            # First check to see if we might have a dictionary in the list which
+            # has a value that is itself another dictionary. In that case we need 
+            # "flatten" the dictionary. We identify them here.
             needs_flattening = [k for (k,v) in listofdicts[0].items() if isinstance(v, list)]
+
+            # Next we need to make sure every dictionary in the list has the
+            # same set of keys. If not, we add those keys with a value of None. 
+            allkeys = [k for L in listofdicts for (k,v) in L.items()]
+            for L in listofdicts:
+                for k in allkeys:
+                    if k not in L.keys():
+                        L[k] = None
+            # The case in which there is an extra key in a sublist (i.e. one that 
+            # needs flattening.) is not handled yet.
+
+            # Then create the dictionary of lists and handle those that need flattening.
             d_of_l = {k: [dic[k] for dic in listofdicts] for k in listofdicts[0]}
             if needs_flattening:
                 # print('flattening {}'.format(needs_flattening))
@@ -4508,7 +4526,6 @@ def main(args=None):
             K.closeFile()
 
         ## Extract Runtime Parameters from Files or Directories of them.
-
         if runtimeparams:
             runtimeData.append(K.extractRuntimeParameters())
 
