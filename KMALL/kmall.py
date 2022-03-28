@@ -4072,10 +4072,35 @@ class kmall():
         """
         translated = {}
         entries = r_text.split('\n')
+        if self.verbose>1:
+            print("RUNTIME PARAMETERS RAW:")
+            print(r_text)
+        idx={}    # Dictionary of indices.
         for entry in entries:
             if entry and (entry.find(':') != -1):  # valid entries look like 'key: value', the rest are headers or blank
                 key, value = entry.split(':')
+
+                # Kongsberg sometimes repeats a key to provide additional information
+                # which of course over-writes anything we'd previously stored in our
+                # translated dictionary. This bit of code checks to see if we've 
+                # seen the code before. If not. we make no changes to the key and 
+                # just note it's the first time we saw it in idx. If the key is 
+                # already in translated, then we modify the key with "_X" where X
+                # indicates the index of the additional data. 
+                if key not in translated.keys():
+                    idx[key] = 0
+                else:
+                    idx[key] += 1
+                    key = key + '_' + str(idx[key])
+
+
                 translated[key] = value.lstrip().rstrip()
+        # When Yaw Stabilisation is off, this parameter is not written. Its absense
+        # can break code that is comparing runtime parameters across files. So we 
+        # give it a value of None here.        
+        if 'Yaw Stabilisation Heading Filter' not in translated.keys():
+            translated['Yaw Stabilisation Heading Filter '] = None
+
         return translated
 
     def translate_installation_parameters_todict(self, i_text):
