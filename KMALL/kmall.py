@@ -15,6 +15,7 @@ import os
 import re
 import bz2
 import copy
+from collections import OrderedDict
 from pyproj import Proj
 from scipy import stats
 
@@ -4095,11 +4096,26 @@ class kmall():
 
 
                 translated[key] = value.lstrip().rstrip()
-        # When Yaw Stabilisation is off, this parameter is not written. Its absense
-        # can break code that is comparing runtime parameters across files. So we 
-        # give it a value of None here.        
+
+        # When Yaw Stabilisation is off, Yaw Stabilization Heading Filter is not 
+        # written. Its absense can break code that is comparing runtime 
+        # parameters across files. So we give it a value of None here. This is 
+        # kind of tricky because we want it in the same location relative to the 
+        # other fields, so we have to convert to/from an OrderedDict.    
         if 'Yaw Stabilisation Heading Filter' not in translated.keys():
-            translated['Yaw Stabilisation Heading Filter '] = None
+            translatedO = OrderedDict(translated)
+            translatedkeys = [k for k,v in translatedO.items()]
+            translatedvalues = [v for k,v in translatedO.items()]
+            for k in translatedkeys:
+                if k == 'Yaw Stabilisation Mode':
+                    translatedkeys.insert(
+                        translatedkeys.index('Yaw Stabilisation Mode')+1,
+                        'Yaw Stabilisation Heading Filter')
+                    translatedvalues.insert(
+                        translatedkeys.index('Yaw Stabilisation Mode')+1,
+                        None)
+            translated = dict(zip(translatedkeys,translatedvalues))
+
 
         return translated
 
