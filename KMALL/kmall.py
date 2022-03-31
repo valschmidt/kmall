@@ -3533,7 +3533,7 @@ class kmall():
                 lat = dg['sounding']['deltaLatitude_deg'][idx] + dg['pingInfo']['latitude_deg']
                 lon = dg['sounding']['deltaLongitude_deg'][idx] + dg['pingInfo']['longitude_deg']
                 #print("0.9f, %0.9f, %0.3f" % (lat, lon, z))
-                print("{0:0.9f}, {1:0.9f}, {2:0.3f}".format(lat,lon,z))
+                print("{0:0.3f}, {1:0.9f}, {2:0.9f}, {3:0.3f}".format(dg['header']['dgtime'],lat,lon,z))
 
 
 
@@ -4287,24 +4287,48 @@ class kmall():
         IOPdf.set_index('File',inplace=True)
         return IOPdf
 
-    def extractPingInfo(self):
+    def extractPingInfo(self,interval=None):
         ''' Extract Ping Info from each ping in a file as a Pandas Dataframe'''
         pingInfo=[]
         if self.Index is None:
             self.index_file()
         IOPdgs = self.Index[self.Index['MessageType'] == "b'#MRZ'"]
+        intervalstarttime = None
         for index, row in IOPdgs.iterrows():
             self.FID.seek(row['ByteOffset'])
-            dg = self.read_EMdgmMRZ()
-            dg['pingInfo']['File'] = self.filename
-            dg['pingInfo']['dgtime'] = dg['header']['dgtime']
-            dg['pingInfo']['dgdatetime'] = dg['header']['dgdatetime']
-            pingInfo.append(dg['pingInfo'])
+            if interval == None:
+                dg = self.read_EMdgmMRZ()
+                dg['pingInfo']['File'] = self.filename
+                dg['pingInfo']['dgtime'] = dg['header']['dgtime']
+                dg['pingInfo']['dgdatetime'] = dg['header']['dgdatetime']
+                pingInfo.append(dg['pingInfo'])
+                continue
+
+            if intervalstarttime == None:
+                intervalstarttime = index
+                dg = self.read_EMdgmMRZ()
+                dg['pingInfo']['File'] = self.filename
+                dg['pingInfo']['dgtime'] = dg['header']['dgtime']
+                dg['pingInfo']['dgdatetime'] = dg['header']['dgdatetime']
+                pingInfo.append(dg['pingInfo'])
+                continue
+            if (index - intervalstarttime) > interval:    
+                dg = self.read_EMdgmMRZ()
+                dg['pingInfo']['File'] = self.filename
+                dg['pingInfo']['dgtime'] = dg['header']['dgtime']
+                dg['pingInfo']['dgdatetime'] = dg['header']['dgdatetime']
+                pingInfo.append(dg['pingInfo'])
+                intervalstarttime = index
+
 
         pingInfod = self.listofdicts2dictoflists(pingInfo)
         pingInfodf = pd.DataFrame(pingInfod)
-        pingInfodf.set_index('File',inplace=True)
-        return pingInfodf
+        if 'File' in pingInfodf.columns:
+            pingInfodf.set_index('File',inplace=True)
+            return pingInfodf
+        else:
+            print("No pinginfo data in " + self.filename)
+            return None    
 
 def main(args=None):
     ''' Commandline script code.'''
@@ -4336,7 +4360,9 @@ def main(args=None):
     parser.add_argument('-r',action='store_true', dest='runtimeparams',
                         default=False, help = ("Extract runtime parameters from file or directory of files."))
     parser.add_argument('-i', action='store_true', dest='extractpinginfo',
-                        default=False, help=("Extract pinginfo from a file to stdout."))
+                        default=False, help=("Extract all pinginfo records from a file to stdout."))
+    parser.add_argument("-ii", action="store", dest="extractpinginfo_ii", type=float,
+                        default=None, help="-ii <interval> Extracts pinginfo at <interval> seconds.")                    
     parser.add_argument('-v', action='count', dest='verbose', default=0,
                         help="Increasingly verbose output (e.g. -v -vv -vvv),"
                              "for debugging use -vvv")
@@ -4353,6 +4379,7 @@ def main(args=None):
     printLatLonZ = args.printLatLonZ
     runtimeparams = args.runtimeparams
     extractpinginfo = args.extractpinginfo
+    extractpinginfo_ii = args.extractpinginfo_ii
 
     runtimeData = []
 
@@ -4566,12 +4593,17 @@ def main(args=None):
             T.closeFile()
             K.closeFile()
 
-        ## Extract Runtime Parameters from Files or Directories of them.
+        ## Extract Runtime Parameters from the file.
         if runtimeparams:
             runtimeData.append(K.extractRuntimeParameters())
 
-        if extractpinginfo:
+        # Extract pinginfo from the file at the full rate or at some interval.
+        if extractpinginfo == True:
             pinginfo = K.extractPingInfo()
+        elif extractpinginfo_ii is not None:
+            pinginfo = K.extractPingInfo(interval=extractpinginfo_ii) 
+         
+        if pinginfo is not None:
             pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
 
         ###########################################################################
