@@ -4381,8 +4381,10 @@ def main(args=None):
     extractpinginfo = args.extractpinginfo
     extractpinginfo_ii = args.extractpinginfo_ii
 
-    runtimeData = []
 
+    runtimeData = []
+    pinginfo = None
+    
     validCompressionLevels = [0, 1]
     if compressionLevel not in validCompressionLevels:
         print("Error: Compression level may be one of " + str(validCompressionLevels))

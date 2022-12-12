@@ -1,0 +1,42 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "KMALL: extractruntimeinfo",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "-f",
+        "/Users/vschmidt/gitsrc/kmall/data/0467_20210620_122539_ASVBEN.kmall",
+        "-r"
+      ]
+    },
+    {
+      "name": "KMALL: extractruntimeinfo_fromdir",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "-d",
+        "/Volumes/ASV_03/2040testing/TB2021_testdir/",
+        "-r",
+        "-vv"
+      ]
+    },
+    {
+      "name": "KMALL: extractpinginfo",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "-f",
+        "/Users/vschmidt/gitsrc/kmall/data/0467_20210620_122539_ASVBEN.kmall",
+        "-i"
+      ]
+    }
+  ]
+}
