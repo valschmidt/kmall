@@ -1,0 +1,19 @@
+Metadata-Version: 1.2
+Name: kmall
+Version: 1.0.0
+Summary: Library and apps for reading Kongsberg sonar KMALL data files.
+Home-page: UNKNOWN
+Author: Val Schmidt; Lynette Davis; Eric Younkin
+Author-email: vschmidt@ccom.unh.edu, ldavis@ccom.unh.edu, eric.g.younkin@noaa.gov
+License: CC0 1.0 Universal
+Description: UNKNOWN
+Keywords: multibeam hydrography ocean mapping acoustic data
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Science/Research
+Classifier: Natural Language :: English
+Classifier: License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Topic :: Scientific/Engineering :: GIS
+Requires-Python: >=3.0
