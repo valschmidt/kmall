@@ -18,6 +18,7 @@ import copy
 from collections import OrderedDict
 from pyproj import Proj
 from scipy import stats
+import itertools
 
 class kmall():
     """ A class for reading a Kongsberg KMALL data file. """
@@ -2073,10 +2074,11 @@ class kmall():
         self.write_EMdgmHeader(dg['header'])
         self.write_EMdgmMpartition(dg['partition'])
         self.write_EMdgmMbody(dg['cmnPart'])
-        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'])
+        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'], dg['header']['dgmVersion'])
 
         for sector in range(dg['pingInfo']['numTxSectors']):
-            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'], sector)
+            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'], sector, 
+                dg['header']['dgmVersion'])
 
         self.write_EMdgmMRZ_rxInfo(dg['rxInfo'])
 
@@ -2118,10 +2120,10 @@ class kmall():
         self.write_EMdgmHeader(dg['header'])
         self.write_EMdgmMpartition(dg['partition'])
         self.write_EMdgmMbody(dg['cmnPart'])
-        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'])
+        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'], dg['header']['dgmVersion'])
 
         for sector in range(dg['pingInfo']['numTxSectors']):
-            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'], sector)
+            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'], sector, dg['header']['dgmVersion'])
 
         self.write_EMdgmMRZ_rxInfo(dg['rxInfo'])
 
@@ -2194,10 +2196,10 @@ class kmall():
                                    dg['numRxTransducers'],
                                    dg['algorithmType']))
 
-    def write_EMdgmMRZ_pingInfo(self, dg):
+    def write_EMdgmMRZ_pingInfo(self, dg, dgmVersion):
         '''A method to write MRZ ping info.
 
-        write_EMdgmMRZ_pingInfo(FID, dg['pinginfo'])
+        write_EMdgmMRZ_pingInfo(FID, dg['pinginfo'],dgmVersion)
 
         '''
         bytes_written = 0
@@ -2250,7 +2252,8 @@ class kmall():
                                    dg['attitudeSensorStatus'],
                                    dg['padding3']))
 
-        # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
+        # For some reason, it doesn't work to do this all in one step, 
+        # but it works broken up into two steps. *shrug*
         format_to_pack = "<2d1f"
         bytes_written += struct.Struct(format_to_pack).size
         self.FID.write(struct.pack(format_to_pack,
@@ -2258,7 +2261,7 @@ class kmall():
                                    dg['longitude_deg'],
                                    dg['ellipsoidHeightReRefPoint_m']))
 
-        if self.dgmVersion >= 1:
+        if dgmVersion >= 1:
             format_to_pack = "f2B"
             bytes_written += struct.Struct(format_to_pack).size
             self.FID.write(struct.pack(format_to_pack,
@@ -2266,7 +2269,7 @@ class kmall():
                                        dg['lambertsLawApplied'],
                                        dg['iceWindow']))
 
-        if self.dgmVersion >= 2:
+        if dgmVersion >= 2:
             format_to_pack = "H"
             bytes_written += struct.Struct(format_to_pack).size
             self.FID.write(struct.pack(format_to_pack,
@@ -2278,7 +2281,7 @@ class kmall():
         self.FID.write(struct.pack(format_to_pack))
 
 
-    def write_EMdgmMRZ_txSectorInfo(self, dg, sector):
+    def write_EMdgmMRZ_txSectorInfo(self, dg, sector, dgmVersion):
         ''' Write MRZ txSectorInfo for single index "sector".
 
         write_EMdgmMRZ_txSectorInfo(FID, dg['txSectorInfo'], sector)
@@ -2302,7 +2305,7 @@ class kmall():
                                    dg['signalWaveForm'][sector],
                                    dg['padding1'][sector]))
 
-        if self.dgmVersion >= 1:
+        if dgmVersion >= 1:
             format_to_pack = "3f"
             self.FID.write(struct.pack(format_to_pack,
                                        dg['highVoltageLevel_dB'][sector],
@@ -2977,10 +2980,11 @@ class kmall():
         self.write_EMdgmHeader(dg['header'])
         self.write_EMdgmMpartition(dg['partition'])
         self.write_EMdgmMbody(dg['cmnPart'])
-        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'])
+        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'], dg['header']['dgmVersion'])
 
         for sector in range(dg['pingInfo']['numTxSectors']):
-            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'], sector)
+            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'], sector, 
+                dg['header']['dgmVersion'])
 
         self.write_EMdgmMRZ_rxInfo(dg['rxInfo'])
 
@@ -3030,10 +3034,11 @@ class kmall():
         self.write_EMdgmHeader(dg['header'])
         self.write_EMdgmMpartition(dg['partition'])
         self.write_EMdgmMbody(dg['cmnPart'])
-        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'])
+        self.write_EMdgmMRZ_pingInfo(dg['pingInfo'], dg['header']['dgmVersion'])
 
         for sector in range(dg['pingInfo']['numTxSectors']):
-            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'], sector)
+            self.write_EMdgmMRZ_txSectorInfo(dg['txSectorInfo'], sector, 
+                dg['header']['dgmVersion'])
 
         self.write_EMdgmMRZ_rxInfo(dg['rxInfo'])
 
@@ -3374,6 +3379,7 @@ class kmall():
         self.FID.seek(0, 0)
         return
 
+        
     def listofdicts2dictoflists(self, listofdicts):
         """ A utility  to convert a list of dicts to a dict of lists."""
         # dg = {}
@@ -3399,8 +3405,6 @@ class kmall():
         #
         # return dg
 
-
-
         if listofdicts:
             # First check to see if we might have a dictionary in the list which
             # has a value that is itself another dictionary. In that case we need 
@@ -3409,23 +3413,32 @@ class kmall():
 
             # Next we need to make sure every dictionary in the list has the
             # same set of keys. If not, we add those keys with a value of None. 
-            allkeys = [k for L in listofdicts for (k,v) in L.items()]
+            # allkeys = [k for L in listofdicts for (k,v) in L.items()]
+            '''
+            allkeys = set().union(*listofdicts)
             for L in listofdicts:
                 for k in allkeys:
                     if k not in L.keys():
                         L[k] = None
+            '''
             # The case in which there is an extra key in a sublist (i.e. one that 
             # needs flattening.) is not handled yet.
 
             # Then create the dictionary of lists and handle those that need flattening.
-            d_of_l = {k: [dic[k] for dic in listofdicts] for k in listofdicts[0]}
+            # d_of_l = {k: [dic[k] for dic in listofdicts] for k in listofdicts[0]}
+            df = pd.DataFrame(listofdicts)
+            d_of_l = df.to_dict('list')                
+            
             if needs_flattening:
                 # print('flattening {}'.format(needs_flattening))
                 for nf in needs_flattening:
                     d_of_l[nf] = [item for sublist in d_of_l[nf] for item in sublist]
+            
             return d_of_l
+            
         else:
             return None
+    
 
     def extractLonLatZ(self):
         """ A method to extract Longitude, Latitude and Depth for each soundings."""
@@ -4384,7 +4397,7 @@ def main(args=None):
 
     runtimeData = []
     pinginfo = None
-    
+
     validCompressionLevels = [0, 1]
     if compressionLevel not in validCompressionLevels:
         print("Error: Compression level may be one of " + str(validCompressionLevels))
@@ -4442,6 +4455,8 @@ def main(args=None):
             K.extract_attitude()
             # Report gaps in attitude data.
             dt_att = np.diff([x.timestamp() for x in K.att["datetime"]])
+            #dt_att = np.diff(K.att["datetime"])
+
             navcheckdata.append([np.min(np.abs(dt_att)),
                                  np.max(dt_att),
                                  np.mean(dt_att),
