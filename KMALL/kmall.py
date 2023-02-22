@@ -1255,7 +1255,7 @@ class kmall():
 
         return dg
 
-    def read_EMdgmSPOdataBlock(self):
+    def read_EMdgmSPOdataBlock(self, dataBytes):
         """
         Read #SPO - Sensor position data block. Data from active sensor is corrected data for position system
         installation parameters. Data is also corrected for motion (roll and pitch only) if enabled by K-Controller
@@ -1279,8 +1279,9 @@ class kmall():
         # Only if available as input from sensor. Calculation according to format.
         dg['posFixQuality_m'] = fields[2]
 
+
         # For some reason, it doesn't work to do this all in one step, but it works broken up into two steps. *shrug*
-        format_to_unpack = "2d3f250s"
+        format_to_unpack = "2d3f" 
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Motion corrected (if enabled in K-Controller) data as used in depth calculations. Referred to vessel
@@ -1300,13 +1301,10 @@ class kmall():
         # If unavailable or from inactive sensor, value set to define UNAVAILABLE_ELLIPSOIDHEIGHT.
         dg['ellipsoidHeightReRefPoint_m'] = fields[4]
 
-        # TODO: This is an array of (max?) length MAX_SPO_DATALENGTH; do something else here?
-        # TODO: Get MAX_SPO_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
-        # TODO: This works for now, but maybe there is a smarter way?
-        # Position data as received from sensor, i.e. uncorrected for motion etc.
-        tmp = fields[5]
-        dg['posDataFromSensor'] = tmp[0:tmp.find(b'\r\n')]
-
+        # Extract variable length raw position data.
+        format_to_unpack = str(dataBytes - 40) + "s"
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+        dg['posDataFromSensor'] = fields[0].decode(errors='ignore')
         if self.verbose > 2:
             self.print_datagram(dg)
 
@@ -1328,7 +1326,11 @@ class kmall():
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
-        dg['sensorData'] = self.read_EMdgmSPOdataBlock()
+        # The data block as a variable sized string array whose length
+        # is unspecified other than < 250 bytes.
+        # So we have to sort that out here.
+        dataBytes = dg['header']['numBytesDgm'] - (self.FID.tell()-start)
+        dg['sensorData'] = self.read_EMdgmSPOdataBlock(dataBytes)
 
         # Seek to end of the packet.
         self.FID.seek(start + dg['header']['numBytesDgm'], 0)
@@ -4343,6 +4345,40 @@ class kmall():
             print("No pinginfo data in " + self.filename)
             return None    
 
+    def extractSensorPosition(self):
+        '''Extracts Sensor Position from the Active Sensor as Pandas Dataframe
+
+        From the "SPO" Datagram:
+        "Data from active sensor will be motion corrected if indicated by operator. 
+        Motion correction is applied to latitude, longitude, speed, 
+        course and ellipsoidal height." 
+        '''
+
+        sensorData = []
+        if self.Index is None:
+            self.index_file()
+
+        SPOdgs = self.Index[self.Index['MessageType'] == "b'#SPO'"]
+
+        for index, row in SPOdgs.iterrows():
+            self.FID.seek(row['ByteOffset'])
+            dg = self.read_EMdgmSPO()
+            dg['sensorData']['File'] = self.filename
+            dg['sensorData']['dgtime'] = dg['header']['dgtime']
+            dg['sensorData']['dgdatetime'] = dg['header']['dgdatetime']
+            
+            sensorData.append(dg['sensorData'])
+
+        if sensorData:
+            sensorDatad = self.listofdicts2dictoflists(sensorData)
+            sensorDatadf = pd.DataFrame(sensorDatad)
+            sensorDatadf.set_index('File', inplace=True)
+
+            return sensorDatadf
+        else:
+            None    
+
+
 def main(args=None):
     ''' Commandline script code.'''
     if args == None:
@@ -4372,6 +4408,8 @@ def main(args=None):
                                              "the compression level (set by -l when compresssing)"))
     parser.add_argument('-r',action='store_true', dest='runtimeparams',
                         default=False, help = ("Extract runtime parameters from file or directory of files."))
+    parser.add_argument('-s',action='store_true', dest='extractsensorposition',
+                        default=False, help = ("Extract sensor position data from file or directory of files."))
     parser.add_argument('-i', action='store_true', dest='extractpinginfo',
                         default=False, help=("Extract all pinginfo records from a file to stdout."))
     parser.add_argument("-ii", action="store", dest="extractpinginfo_ii", type=float,
@@ -4393,10 +4431,11 @@ def main(args=None):
     runtimeparams = args.runtimeparams
     extractpinginfo = args.extractpinginfo
     extractpinginfo_ii = args.extractpinginfo_ii
-
+    extractsensorposition = args.extractsensorposition
 
     runtimeData = []
     pinginfo = None
+    sensorData = None
 
     validCompressionLevels = [0, 1]
     if compressionLevel not in validCompressionLevels:
@@ -4619,9 +4658,15 @@ def main(args=None):
             pinginfo = K.extractPingInfo()
         elif extractpinginfo_ii is not None:
             pinginfo = K.extractPingInfo(interval=extractpinginfo_ii) 
-         
+            
         if pinginfo is not None:
             pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
+
+        if extractsensorposition == True:
+            sensorData = K.extractSensorPosition()
+            
+        if sensorData is not None:
+            sensorData.to_csv('SensorPosition_' + os.path.basename(K.filename[:-6]) + '.csv') 
 
         ###########################################################################
         # End file processing loop
