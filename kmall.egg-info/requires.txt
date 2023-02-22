@@ -1,4 +1,0 @@
-pandas
-numpy
-pyproj
-scipy

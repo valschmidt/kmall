@@ -1,9 +1,0 @@
-# Ideas to improve compression of data.
-
-So far I've seen the biggest improvement by bit packing - that is, multiply by 10^N where N is the number of digits past the decimal desired, then round this to integers and cast this to shorts. 
-
-My test data is a noisy line of 10,000 points where the noise is stddev 1. I could improve on the method above by doing this encoding on the residuals after a line fit to the data. One must also include the coefficients of the fit. 
-
-A really amazing result occurs if you sort the residuals first. The improvement is a factor of 10, but you of course have to be able to undo the sort. To do that you have to save the original indicies and the cost of doing this, even cast to a short, produces a poorer result than no sort at all. The cost of information. 
-
-One way to improve things might be to take the list of shorts and re-arrange the bits. For example, if most of the values are small, or they are small in blocks, one might get the improvement of the sort by rearranging bits that are likely to be the same together. If the residuals are expected to be small, then only the lower byte is likely to have have 1's. So it might be possible to extract the upper level byte of each short, concatinate these togther, the do the same with the lower level byte. Then compress the result. If all residuals are small, or if they are small in blocks, then it would give blocks of 0's in the data whose compression ratio would might be improved. The question is, how would this compare to the compression algorithms native ability to recognize patterns in the oriignal data.  
