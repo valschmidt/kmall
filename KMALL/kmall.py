@@ -1329,7 +1329,7 @@ class kmall():
         # The data block as a variable sized string array whose length
         # is unspecified other than < 250 bytes.
         # So we have to sort that out here.
-        dataBytes = dg['header']['numBytesDgm'] - (self.FID.tell()-start)
+        dataBytes = dg['header']['numBytesDgm'] - 4 - (self.FID.tell()-start)
         dg['sensorData'] = self.read_EMdgmSPOdataBlock(dataBytes)
 
         # Seek to end of the packet.
@@ -1796,7 +1796,7 @@ class kmall():
 
         return dg
 
-    def read_EMdgmSCLdataFromSensor(self):
+    def read_EMdgmSCLdataFromSensor(self,dataBytes):
         """
         Read part of clock datagram giving offsets and the raw input in text format.
         :return: A dictionary containing EMdgmSCLdataFromSensor.
@@ -1805,7 +1805,7 @@ class kmall():
         # LMD tested.
 
         dg = {}
-        format_to_unpack = "1f1i64s"
+        format_to_unpack = "1f1i"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         # Offset in seconds from K-Controller operator input.
@@ -1814,12 +1814,11 @@ class kmall():
         # source. Unit nanoseconds. Difference smaller than +/- 1 second if 1PPS is active and sync from ZDA.
         dg['clockDevPU_nanosec'] = fields[1]
 
-        # TODO: This is an array of (max?) length MAX_SCL_DATALENGTH; do something else here?
-        # TODO: Get MAX_SCL_DATALENGTH from datagram instead of hard-coding in format_to_unpack.
-        # TODO: This works for now, but maybe there is a smarter way?
-        # Position data as received from sensor, i.e. uncorrected for motion etc.
-        tmp = fields[2]
-        dg['dataFromSensor'] = tmp[0:tmp.find(b'\x00\x00L')]
+        # Extract variable length raw clock data.
+        format_to_unpack = str(dataBytes - struct.Struct(format_to_unpack).size) + "s"
+        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
+  
+        dg['dataFromSensor'] =fields[0].decode(errors='ignore')
 
         return dg
 
@@ -1835,7 +1834,8 @@ class kmall():
         dg = {}
         dg['header'] = self.read_EMdgmHeader()
         dg['cmnPart'] = self.read_EMdgmScommon()
-        dg['sensData'] = self.read_EMdgmSCLdataFromSensor()
+        dataBytes = dg['header']['numBytesDgm'] - 4 - (self.FID.tell()-start)
+        dg['sensData'] = self.read_EMdgmSCLdataFromSensor(dataBytes)
 
         # Seek to end of the packet.
         self.FID.seek(start + dg['header']['numBytesDgm'], 0)
