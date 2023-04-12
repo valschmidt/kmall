@@ -1047,7 +1047,7 @@ class kmall():
         dg = {}
 
         # The "detectedRangeInSamplesHighResolution" field is present in my dgmVersion==2
-        # and ==3 data.  Given it wasn't implemented in the upstream library, wonder if
+        # data.  Given it wasn't implemented in the upstream library, wonder if
         # it wasn't present in dgmVersion==1?
         format_to_unpack = "1f4H1f"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
