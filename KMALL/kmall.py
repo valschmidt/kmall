@@ -1047,8 +1047,8 @@ class kmall():
         dg = {}
 
         # The "detectedRangeInSamplesHighResolution" field is present in my dgmVersion==2
-        # and ==3 data, but given it wasn't implemented in the upstream library, wonder if
-        # it wasn't present in dgmVersion==1
+        # and ==3 data.  Given it wasn't implemented in the upstream library, wonder if
+        # it wasn't present in dgmVersion==1?
         format_to_unpack = "1f4H1f"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
@@ -1062,7 +1062,11 @@ class kmall():
         # Number of sample data for current beam. Also denoted Ns.
         dg['numSampleData'] = fields[4]
 
-        # Two way range as a higher resolution floating point value
+        # The same information as in detectedRangeInSamples with higher
+        # resolution. Two way range in samples. Approximation to calculated
+        # distance from tx to bottom detection
+        # [meters] = soundVelocity_mPerSec * detectedRangeInSamples / (sampleFreq_Hz * 2)
+        # The detected range is set to zero when the beam has no bottom detection.
         dg['detectedRangeInSamplesHighResolution'] = fields[5]
 
         # Pointer to start of array with Water Column data. Length of array = numSampleData.
