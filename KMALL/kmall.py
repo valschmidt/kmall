@@ -1045,7 +1045,11 @@ class kmall():
         # TODO: Test with water column data, phaseFlag = 1 and phaseFlag = 2 to ensure this continues to function properly.
 
         dg = {}
-        format_to_unpack = "1f4H"
+
+        # The "detectedRangeInSamplesHighResolution" field is present in my dgmVersion==2
+        # and ==3 data, but given it wasn't implemented in the upstream library, wonder if
+        # it wasn't present in dgmVersion==1
+        format_to_unpack = "1f4H1f"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         dg['beamPointAngReVertical_deg'] = fields[0]
@@ -1057,6 +1061,9 @@ class kmall():
         dg['beamTxSectorNum'] = fields[3]
         # Number of sample data for current beam. Also denoted Ns.
         dg['numSampleData'] = fields[4]
+
+        # Two way range as a higher resolution floating point value
+        dg['detectedRangeInSamplesHighResolution'] = fields[5]
 
         # Pointer to start of array with Water Column data. Length of array = numSampleData.
         # Sample amplitudes in 0.5 dB resolution. Size of array is numSampleData * int8_t.
