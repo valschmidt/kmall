@@ -41,6 +41,7 @@ Thumbs.db
 ###########################
 build/*
 .vscode/*
+kmall.egg-info
 
 # Backup files #
 ################
