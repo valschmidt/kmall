@@ -215,7 +215,7 @@ class kmall():
         # UTC time in seconds + Nano seconds remainder. Epoch 1970-01-01.
         dg['dgtime'] = fields[5] + fields[6] / 1.0E9
         dg['dgdatetime'] = datetime.datetime.fromtimestamp(dg['dgtime'],
-                                                              tz=datetime.UTC)
+                                                              tz=datetime.timezone.utc)
 
         if self.verbose > 2:
             self.print_datagram(dg)
@@ -1289,7 +1289,7 @@ class kmall():
         dg['timeFromSensor_nanosec'] = fields[1]
         dg['datetime'] = datetime.datetime.fromtimestamp(dg['timeFromSensor_sec']
                                                             + dg['timeFromSensor_nanosec'] / 1.0E9,
-                                                            tz=datetime.UTC)
+                                                            tz=datetime.timezone.utc)
         # Only if available as input from sensor. Calculation according to format.
         dg['posFixQuality_m'] = fields[2]
 
@@ -1443,7 +1443,7 @@ class kmall():
         dg['time_sec'] = fields[0]
         dg['time_nanosec'] = fields[1]
         dg['datetime'] = datetime.datetime.fromtimestamp(dg['time_sec'] + dg['time_nanosec'] / 1.0E9,
-                                                         tz=datetime.UTC)
+                                                         tz=datetime.timezone.utc)
         # Delayed heave. Unit meter.
         dg['delayedHeave_m'] = fields[2]
 
@@ -1482,7 +1482,7 @@ class kmall():
         # If time is unavailable from attitude sensor input, time of reception on serial port is added to this field.
         dg['time_nanosec'] = fields[3]
         dg['dgtime'] = dg['time_sec'] + dg['time_nanosec'] / 1.0E9
-        dg['datetime'] = datetime.datetime.fromtimestamp(dg['dgtime'],tz=datetime.UTC)
+        dg['datetime'] = datetime.datetime.fromtimestamp(dg['dgtime'],tz=datetime.timezone.utc)
         # Bit pattern for indicating validity of sensor data, and reduced performance.
         # The status word consists of 32 single bit flags numbered from 0 to 31, where 0 is the least significant bit.
         # Bit number 0-7 indicate if from a sensor data is invalid: 0 = valid data, 1 = invalid data.
@@ -1669,7 +1669,7 @@ class kmall():
         # Time extracted from the Sound Velocity Profile. Parameter is set to zero if not found.
         dg['time_sec'] = fields[3]
         dg['datetime'] = datetime.datetime.fromtimestamp(dg['time_sec'],
-                                                         tz=datetime.UTC)
+                                                         tz=datetime.timezone.utc)
 
         format_to_unpack = "2d"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
@@ -1777,7 +1777,7 @@ class kmall():
         # Nano seconds remainder. time_nanosec part to be added to time_sec for more exact time.
         dg['time_nanosec'] = fields[1]
         dg['datetime'] = datetime.datetime.fromtimestamp(dg['time_sec'] + dg['time_nanosec'] / 1.0E9,
-                                                            tz=datetime.UTC)
+                                                            tz=datetime.timezone.utc)
         # Measured sound velocity from sound velocity probe. Unit m/s.
         dg['soundVelocity_mPerSec'] = fields[2]
         # Water temperature from sound velocity probe. Unit Celsius.
@@ -1996,7 +1996,7 @@ class kmall():
         dg['timeFromSensor_nanosec'] = fields[1]
         dg['datetime'] = datetime.datetime.fromtimestamp(dg['timeFromSensor_sec']
                                                             + dg['timeFromSensor_nanosec'] / 1.0E9,
-                                                            tz=datetime.UTC)
+                                                            tz=datetime.timezone.utc)
         dg['posFixQuality'] = fields[2]
         dg['correctedLat_deg'] = fields[3]
         dg['correctedLong_deg'] = fields[4]
