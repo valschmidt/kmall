@@ -4678,13 +4678,17 @@ def main(args=None):
             pinginfo = K.extractPingInfo(interval=extractpinginfo_ii) 
             
         if pinginfo is not None:
-            pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
+            pinginfo.to_csv('PingInfo_' + 
+                            os.path.dirname(K.filename).replace('./','').replace('/','_') + 
+                            os.path.basename(K.filename[:-6]) + '.csv')
 
         if extractsensorposition == True:
             sensorData = K.extractSensorPosition()
             
         if sensorData is not None:
-            sensorData.to_csv('SensorPosition_' + os.path.basename(K.filename[:-6]) + '.csv') 
+            sensorData.to_csv('SensorPosition_' + 
+                              os.path.dirname(K.filename).replace('./','').replace('/','_') + 
+                              os.path.basename(K.filename[:-6]) + '.csv')
 
         ###########################################################################
         # End file processing loop
