@@ -4679,7 +4679,7 @@ def main(args=None):
             
         if pinginfo is not None:
             pinginfo.to_csv('PingInfo_' + 
-                            os.path.dirname(K.filename).replace('./','').replace('/','_') + 
+                            os.path.dirname(K.filename).replace('../','').replace('./','').replace('/','_') + 
                             os.path.basename(K.filename[:-6]) + '.csv')
 
         if extractsensorposition == True:
@@ -4687,7 +4687,7 @@ def main(args=None):
             
         if sensorData is not None:
             sensorData.to_csv('SensorPosition_' + 
-                              os.path.dirname(K.filename).replace('./','').replace('/','_') + 
+                              os.path.dirname(K.filename)..replace('../','').replace('./','').replace('/','_') + 
                               os.path.basename(K.filename[:-6]) + '.csv')
 
         ###########################################################################
