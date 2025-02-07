@@ -4431,7 +4431,11 @@ def main(args=None):
     parser.add_argument('-i', action='store_true', dest='extractpinginfo',
                         default=False, help=("Extract all pinginfo records from a file to stdout."))
     parser.add_argument("-ii", action="store", dest="extractpinginfo_ii", type=float,
-                        default=None, help="-ii <interval> Extracts pinginfo at <interval> seconds.")                    
+                        default=None, help="-ii <interval> Extracts pinginfo at <interval> seconds.")   
+    parser.add_argument('-D', action='store', type=int, dest='decimationInterval',
+                        default=1, help=("Set the decimation level where 1=write every other ping (Default 1).\n" +
+                                         "\t The output file is written in the executed directory appended with Dd,\n" +
+                                         "\t where D is the specified decimation level."))                 
     parser.add_argument('-v', action='count', dest='verbose', default=0,
                         help="Increasingly verbose output (e.g. -v -vv -vvv),"
                              "for debugging use -vvv")
@@ -4450,6 +4454,10 @@ def main(args=None):
     extractpinginfo = args.extractpinginfo
     extractpinginfo_ii = args.extractpinginfo_ii
     extractsensorposition = args.extractsensorposition
+    decimationInterval = args.decimationInterval
+
+    if decimationInterval is not None:
+        decimate = True
 
     runtimeData = []
     pinginfo = None
@@ -4666,6 +4674,36 @@ def main(args=None):
 
             T.closeFile()
             K.closeFile()
+
+        ## Decimate the ping data by a desired factor.
+        if decimate:
+
+
+            print("Decimating soundings and imagery.")
+    
+            decimatedFilename = K.filename + ".%dd" % decimationInterval
+
+            T = kmall(decimatedFilename)
+            T.OpenFiletoWrite()
+            K.index_file()
+
+            msgCnt = 0
+            for offset, size, mtype in zip(K.Index['ByteOffset'],
+                                               K.Index['MessageSize'],
+                                               K.Index['MessageType']):
+                msgCnt+=1
+                K.FID.seek(offset, 0)
+
+                if mtype == "b'#MRZ'":
+                    if np.mod(msgCnt, decimationInterval+1) == 0:
+                        dg = K.read_EMdgmMRZ()
+                        T.write_EMdgmMRZ(dg)
+                else:
+                    buffer = K.FID.read(size)
+                    T.FID.write(buffer)
+
+            K.closeFile()
+            T.closeFile()
 
         ## Extract Runtime Parameters from the file.
         if runtimeparams:
