@@ -3568,6 +3568,54 @@ class kmall():
                 #print("0.9f, %0.9f, %0.3f" % (lat, lon, z))
                 print("{0:0.3f}, {1:0.9f}, {2:0.9f}, {3:0.3f}".format(dg['header']['dgtime'],lat,lon,z))
 
+    def extract_sounding_stats(self):
+        """ A method to print Longitude, Latitude and Depth for each sounding."""
+        ''' INCOMPLETE! '''
+
+        if self.Index is None:
+            self.index_file()
+
+        if self.FID is None:
+            self.OpenFiletoRead()
+
+        stats = {}
+        stats['self.filename'] = self.filename
+        stats['minZ'] = 0
+        stats['maxZ'] = 0
+        stats['minLat'] = 0
+        stats['maxLat'] = 0
+        stats['minLon'] = 0
+        stats['maxLon'] = 0
+    
+        # Get the file byte count offset for each MRZ datagram.
+        MRZOffsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#MRZ'"]
+
+        for offset in MRZOffsets:
+            self.FID.seek(offset, 0)
+            dg = self.read_EMdgmMRZ()
+
+            for idx in np.arange(len(dg['sounding']['z_reRefPoint_m'])):
+
+                z = dg['sounding']['z_reRefPoint_m'][idx] - dg['pingInfo']['z_waterLevelReRefPoint_m']
+                lat = dg['sounding']['deltaLatitude_deg'][idx] + dg['pingInfo']['latitude_deg']
+                lon = dg['sounding']['deltaLongitude_deg'][idx] + dg['pingInfo']['longitude_deg']
+                
+                if stats['minZ'] == 0 or z < stats['minZ']:
+                    stats['minZ'] = z
+                if stats['maxZ'] == 0 or z > stats['maxZ']:
+                    stats['maxZ'] = z
+                if stats['minLat'] == 0 or lat < stats['minLat']:
+                    stats['minLat'] = lat
+                if stats['maxLat'] == 0 or lat > stats['maxLat']:
+                    stats['maxLat'] = lat
+                if stats['minLon'] == 0 or lon < stats['minLon']:
+                    stats['minLon'] = lon
+                if stats['maxLon'] == 0 or lon > stats['maxLon']:
+                    stats['maxLon'] = lon
+        
+        return pd.DataFrame(stats, index=[0])
+            
+            
 
 
     def check_ping_count(self):
@@ -4322,10 +4370,15 @@ class kmall():
 
     def extractPingInfo(self,interval=None):
         ''' Extract Ping Info from each ping in a file as a Pandas Dataframe'''
+        if self.verbose > 0:
+            print("Extracting Ping Info from " + self.filename)
         pingInfo=[]
         if self.Index is None:
             self.index_file()
         IOPdgs = self.Index[self.Index['MessageType'] == "b'#MRZ'"]
+        if self.verbose > 0:    
+            print("Found " + str(len(IOPdgs)) + " MRZ datagrams in " + self.filename)
+
         intervalstarttime = None
         for index, row in IOPdgs.iterrows():
             self.FID.seek(row['ByteOffset'])
@@ -4428,6 +4481,8 @@ def main(args=None):
                         default=False, help = ("Extract runtime parameters from file or directory of files."))
     parser.add_argument('-s',action='store_true', dest='extractsensorposition',
                         default=False, help = ("Extract sensor position data from file or directory of files."))
+    parser.add_argument('-S', action='store_true', dest='extractstatistics',
+                        default=False, help=("Extract statistics from file or directory of files."))
     parser.add_argument('-i', action='store_true', dest='extractpinginfo',
                         default=False, help=("Extract all pinginfo records from a file to stdout."))
     parser.add_argument("-ii", action="store", dest="extractpinginfo_ii", type=float,
@@ -4455,13 +4510,18 @@ def main(args=None):
     extractpinginfo_ii = args.extractpinginfo_ii
     extractsensorposition = args.extractsensorposition
     decimationInterval = args.decimationInterval
+    extractstatistics = args.extractstatistics
 
-    if decimationInterval is not None:
+    if decimationInterval > 1:
         decimate = True
+    else:
+        decimate = False    
 
     runtimeData = []
     pinginfo = None
     sensorData = None
+    totalDistanceTraveled_NM = 0.0
+    totalDistanceTraveled_M = 0.0
 
     validCompressionLevels = [0, 1]
     if compressionLevel not in validCompressionLevels:
@@ -4714,11 +4774,44 @@ def main(args=None):
             pinginfo = K.extractPingInfo()
         elif extractpinginfo_ii is not None:
             pinginfo = K.extractPingInfo(interval=extractpinginfo_ii) 
+
+        # Extract statistics from the file.
+        if extractstatistics is not None:
+
+            pinginfo = K.extractPingInfo()
+           
+            # This method of calculating distance traveled is producing a longer
+            # distance than what one might measure in a GIS program.  This is
+            # because it is calculating the distance traveled between each ping
+            # and summing them up.  This is not the same as the distance traveled
+            # between the first and last ping for a linear segment. But segments
+            # are not always linear, so this is a good approximation of the total.
             
-        if pinginfo is not None:
-            pinginfo.to_csv('PingInfo_' + 
-                            os.path.dirname(K.filename).replace('../','').replace('./','').replace('/','_') + 
-                            '_' + os.path.basename(K.filename[:-6]) + '.csv')
+            if pinginfo is not None:
+
+                latmean = np.mean(pinginfo['latitude_deg'])
+                lonmean = np.mean(pinginfo['longitude_deg'])
+                utmzone = int((lonmean + 180) / 6) + 1
+
+                if latmean < 0:
+                    # print("Southern Hemisphere")
+                    proj_utm = Proj(proj='utm', zone=utmzone, ellps='WGS84', south=True)
+                else:
+                    proj_utm = Proj(proj='utm', zone=utmzone, ellps='WGS84', south=False)
+
+                easting, northing = proj_utm(pinginfo['longitude_deg'], 
+                                             pinginfo['latitude_deg'])
+                dxm = np.diff(easting)
+                dym = np.diff(northing)
+
+                distanceTraveled_m = np.sum(np.sqrt(dym**2 + dxm**2))
+
+                totalDistanceTraveled_NM += distanceTraveled_m / 1852.0
+                totalDistanceTraveled_M += distanceTraveled_m
+
+            #stats = K.extractStatistics()
+            #stats['distanceTraveled'] = distanceTraveled
+
 
         if extractsensorposition == True:
             sensorData = K.extractSensorPosition()
@@ -4731,6 +4824,11 @@ def main(args=None):
         ###########################################################################
         # End file processing loop
         ###########################################################################
+
+    if extractstatistics is not None:
+        print("Total distance travelled: %0.3f nautical miles (%0.3f meters)" % 
+              (totalDistanceTraveled_NM, totalDistanceTraveled_M))
+
 
     # Process and print runtime parameters.
     if runtimeData.__len__() != 0:
