@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
 import subprocess
 import concurrent.futures
@@ -35,16 +38,19 @@ def main():
     parser.add_argument("--kmall_py", default="/Users/vschmidt/gitsrc/kmall/KMALL/kmall.py", help="Path to kmall.py script")
     args = parser.parse_args()
     
-    files = find_kmall_files(root_dir)
+    files = find_kmall_files(args.root_dir)
     total_nm = 0.0
     total_m = 0.0
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [executor.submit(get_distance_from_file, kmall_py, f) for f in files]
-        for future in concurrent.futures.as_completed(futures):
+        future_to_file = {executor.submit(get_distance_from_file, args.kmall_py, f): f for f in files}
+        completed = 0
+        for future in concurrent.futures.as_completed(future_to_file):
             nm, m = future.result()
             total_nm += nm
             total_m += m
+            completed += 1
+            print(f"[{completed}/{len(files)}] Processed: {os.path.basename(future_to_file[future])} | Distance: {nm:.3f} NM ({m:.3f} m)")
 
     print("TOTAL distance travelled: %.3f nautical miles (%.3f meters)" % (total_nm, total_m))
 
