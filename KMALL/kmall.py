@@ -4808,11 +4808,16 @@ def main(args=None):
                 easting, northing = proj_utm(pinginfo['longitude_deg'], 
                                              pinginfo['latitude_deg'])
 
+                # Remove zero values, which are often present.
                 easting = easting[easting != 0]
                 northing = northing[northing != 0]
-                
+                # Remove outliers that are more than 100m away from the previous point.
                 dxm = np.diff(easting)
                 dym = np.diff(northing)
+                mask = (np.abs(dxm) < 100) & (np.abs(dym) < 100)
+                dxm = dxm[mask]
+                dym = dym[mask]
+                
                 #distanceTraveled2 = np.sqrt((easting[0]-easting[-1])**2 +
                 #                            (northing[0]-northing[-1])**2)
                 distanceTraveled_m = np.sum(np.sqrt(dym**2 + dxm**2))
