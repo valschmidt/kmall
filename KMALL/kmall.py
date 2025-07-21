@@ -4550,10 +4550,12 @@ def main(args=None):
         print("No files found to process.")
         sys.exit()
 
+    q = 1
+    Nfiles = len(filestoprocess)
     for filename in filestoprocess:
         print("")
-        print("Processing: %s" % filename)
-
+        print("Processing %d of %d: %s" % (q,Nfiles,filename))
+        q += 1
         # Create the class instance.
         K = kmall(filename)
         K.verbose = args.verbose
