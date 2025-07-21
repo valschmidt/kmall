@@ -4775,8 +4775,9 @@ def main(args=None):
         # Extract pinginfo from the file at the full rate or at some interval.
         if extractpinginfo == True:
             pinginfo = K.extractPingInfo()
-            pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
-            
+            if pinginfo is not None:
+                pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
+
         elif extractpinginfo_ii is not None:
             pinginfo = K.extractPingInfo(interval=extractpinginfo_ii) 
 
