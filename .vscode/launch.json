@@ -1,6 +1,62 @@
 {
   "version": "0.2.0",
   "configurations": [
+
+    {
+      "name": "KMALL: ExtractSPO",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "-f", 
+        "/Users/vschmidt/Downloads/test.kmall",
+        "-s"
+      ]
+    },
+    {
+      "name": "KMALL: compress",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "/Users/vschmidt/scratch/kmall_compression/",
+      "args": [
+        "-f",
+        "/Users/vschmidt/scratch/kmall_compression/ogdata/0106_20211028_153819.kmall",
+        "-z",
+        "-l0"
+      ]
+    },
+    {
+      "name": "KMALL: uncompress2",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "/Users/vschmidt/scratch/kmall_compression/",
+      "args": [
+        "-f",
+        "/Users/vschmidt/scratch/kmall_compression/0106_20211028_153819.kmall.0z",
+        "-Z"
+      ]
+    },
+    {
+      "name": "KMALL: compress-profile",
+      "type": "python",
+      "request": "launch",
+      "module": "cProfile",
+      "console": "integratedTerminal",
+      "args": [
+        "-o",
+        "/tmp/kmall_profile.prof",
+        "${file}",
+        "-f",
+        "/Users/vschmidt/scratch/0001_20220725_005109.kmall",
+        "-z",
+        "-l0"
+      ]
+    },
     {
       "name": "KMALL: extractruntimeinfo",
       "type": "python",
@@ -19,12 +75,7 @@
       "request": "launch",
       "program": "${file}",
       "console": "integratedTerminal",
-      "args": [
-        "-d",
-        "/Volumes/ASV_03/2040testing/TB2021_testdir/",
-        "-r",
-        "-vv"
-      ]
+      "args": ["-d", "/Volumes/ASV_03/2040testing/TB2021_testdir/", "-r", "-vv"]
     },
     {
       "name": "KMALL: extractpinginfo",
