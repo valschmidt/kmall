@@ -4808,6 +4808,9 @@ def main(args=None):
                 easting, northing = proj_utm(pinginfo['longitude_deg'], 
                                              pinginfo['latitude_deg'])
 
+                easting = easting[easting != 0]
+                northing = northing[northing != 0]
+                
                 dxm = np.diff(easting)
                 dym = np.diff(northing)
                 distanceTraveled2 = np.sqrt((easting[0]-easting[-1])**2 +
