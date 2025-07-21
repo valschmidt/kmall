@@ -4522,7 +4522,8 @@ def main(args=None):
     sensorData = None
     totalDistanceTraveled_NM = 0.0
     totalDistanceTraveled_M = 0.0
-
+    totalDistanceTraveled_M2 = 0.0
+    
     validCompressionLevels = [0, 1]
     if compressionLevel not in validCompressionLevels:
         print("Error: Compression level may be one of " + str(validCompressionLevels))
@@ -4774,6 +4775,8 @@ def main(args=None):
         # Extract pinginfo from the file at the full rate or at some interval.
         if extractpinginfo == True:
             pinginfo = K.extractPingInfo()
+            pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
+            
         elif extractpinginfo_ii is not None:
             pinginfo = K.extractPingInfo(interval=extractpinginfo_ii) 
 
@@ -4803,13 +4806,16 @@ def main(args=None):
 
                 easting, northing = proj_utm(pinginfo['longitude_deg'], 
                                              pinginfo['latitude_deg'])
+
                 dxm = np.diff(easting)
                 dym = np.diff(northing)
-
+                distanceTraveled2 = np.sqrt((easting[0]-easting[-1])**2 +
+                                            (northing[0]-northing[-1])**2)
                 distanceTraveled_m = np.sum(np.sqrt(dym**2 + dxm**2))
 
                 totalDistanceTraveled_NM += distanceTraveled_m / 1852.0
                 totalDistanceTraveled_M += distanceTraveled_m
+                totalDistanceTraveled_M2 += distanceTraveled2
 
             #stats = K.extractStatistics()
             #stats['distanceTraveled'] = distanceTraveled
@@ -4830,6 +4836,8 @@ def main(args=None):
     if extractstatistics is not None:
         print("Total distance travelled: %0.3f nautical miles (%0.3f meters)" % 
               (totalDistanceTraveled_NM, totalDistanceTraveled_M))
+        print("Total distance travelled between first and last ping: %0.3f meters" %
+              totalDistanceTraveled_M2)
 
 
     # Process and print runtime parameters.
