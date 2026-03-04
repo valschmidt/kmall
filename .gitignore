@@ -20,6 +20,7 @@
 *.rar
 *.tar
 *.zip
+*.swp
 
 # Logs and databases #
 ######################
@@ -56,3 +57,7 @@ kmall.egg-info
 #########################
 *.ipynb_checkpoints/*
 .vscode/launch.json
+
+# VS Code cruft.
+##################
+.history*
