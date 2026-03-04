@@ -1,6 +1,6 @@
 ﻿# Kongsberg "KMALL" file reader
 
-Modern Kongsberg bathymetric sonar systems, which acquire data using "Seafloor Inforation System - Version 5" produce data files in the ".kmall" data format. This module (class) and utility reads these data formats and provides several tools for reporting information about the data within the file.
+Modern Kongsberg multi-beam echo sounders, which acquire data using "Seafloor Information System (SIS) - Version 5" produce data files in the ".kmall" data format. This module (class) and utility reads and writes this data format and provides several tools for reporting information about the data within the file. The `kmall.py` utility can dump the soundings to ASCII text, verify the contents of the kmall file, use any of several smart (experimental) methods to compress (and decompress) the files, extract runtime parameters (sonar acquisition settings) and `pinginfo` records (metadata about each ping). 
 
 Although low-level readers for many of the datagram types is in place, little other infrastucture exists. This reader remains a work in progress. 
 
@@ -32,13 +32,13 @@ Although low-level readers for many of the datagram types is in place, little ot
                             where D is the specified decimation level.
     -v                    Increasingly verbose output (e.g. -v -vv -vvv),for debugging use -vvv 
 
-See [the examples](KMALL_examples.rst) for details about using the module.
+See [the examples](docs/KMALL_examples.rst) for details about using the module.
 
 ## Coordinate systems
 
 ### Vessel Coordinate System (VCS)
 
-Origo of the VCS is the vessel reference point. The VCS is defined according to the right hand rule.
+Origin of the VCS is the vessel reference point. The VCS is defined according to the right hand rule.
 
     x-axis pointing forward parallel to the vessel main axis.
     y-axis pointing starboard parallel to the deck plane.
@@ -52,7 +52,7 @@ Rotation of the vessel coordinate system around an axis is defined as positive i
 
 ### Array Coordinate System (ACS)
 
-Origo of the ACS is at the centre of the array face. The ACS is defined according to the right hand rule.
+Origin of the ACS is at the centre of the array face. The ACS is defined according to the right hand rule.
 
     x-axis pointing forward along the array (parallel to the vessel main axis).
     y-axis pointing starboard along the array plane.
@@ -60,7 +60,7 @@ Origo of the ACS is at the centre of the array face. The ACS is defined accordin
 
 ### Surface Coordinate System (SCS)
 
-Origo of the SCS is the vessel reference point at the time of transmission. The SCS is defined according to the right hand rule.
+Origin of the SCS is the vessel reference point at the time of transmission. The SCS is defined according to the right hand rule.
 
     x-axis pointing forward along the horizontal projection of the vessel main axis.
     y-axis pointing horizontally to starboard, orthogonal to the horizontal projection of the vessel main axis.
@@ -70,7 +70,7 @@ To move SCS into the waterline, use reference point height corrected for roll an
 
 ### Fixed Coordinate System (FCS)
 
-Origo of the FCS is fixed somewhere in the nominal sea surface. The FCS is defined according to the right hand rule.
+Origin of the FCS is fixed somewhere in the nominal sea surface. The FCS is defined according to the right hand rule.
 
     x-axis pointing north.
     y-axis pointing east.
