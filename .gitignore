@@ -61,3 +61,7 @@ kmall.egg-info
 # VS Code cruft.
 ##################
 .history*
+.profile.flame
+
+# Working test directory
+*/workingdir/*
