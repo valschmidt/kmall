@@ -4780,6 +4780,7 @@ def main(args=None):
 
         elif extractpinginfo_ii is not None:
             pinginfo = K.extractPingInfo(interval=extractpinginfo_ii) 
+            pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
 
         # Extract statistics from the file.
         if extractstatistics is not None:
