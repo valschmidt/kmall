@@ -6,7 +6,7 @@ Although low-level readers for many of the datagram types is in place, little ot
 
     ./kmall.py -h
     usage: kmall.py [-h] [-f KMALL_FILENAME] [-d KMALL_DIRECTORY] [-p] [-V] [-z] [-l COMPRESSIONLEVEL] [-Z] [-r] [-s] [-S] [-i] [-ii EXTRACTPINGINFO_II]
-                    [-D DECIMATIONINTERVAL] [-v]
+                    [-o OUTPUTDIRECTORY] [-D DECIMATIONINTERVAL] [-v]
 
     A python script (and class) for parsing Kongsberg KMALL data files.
 
@@ -27,6 +27,8 @@ Although low-level readers for many of the datagram types is in place, little ot
     -i                    Extract all pinginfo records from a file to stdout.
     -ii EXTRACTPINGINFO_II
                             -ii <interval> Extracts pinginfo at <interval> seconds.
+    -o OUTPUTDIRECTORY    -o <directory> Write extracted pinginfo, runtime parameter and sensor position files to <directory>. The directory is created if it does
+                            not exist. (Default: the current working directory.)
     -D DECIMATIONINTERVAL
                             Set the decimation level where 1=write every other ping (Default 1). The output file is written in the executed directory appended with Dd,
                             where D is the specified decimation level.

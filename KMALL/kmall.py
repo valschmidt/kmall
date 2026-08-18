@@ -4487,6 +4487,10 @@ def main(args=None):
                         default=False, help=("Extract all pinginfo records from a file to stdout."))
     parser.add_argument("-ii", action="store", dest="extractpinginfo_ii", type=float,
                         default=None, help="-ii <interval> Extracts pinginfo at <interval> seconds.")   
+    parser.add_argument('-o', action='store', dest='outputdirectory',
+                        default=None, help=("-o <directory> Write extracted pinginfo, runtime parameter and "
+                                            "sensor position files to <directory>. The directory is created "
+                                            "if it does not exist. (Default: the current working directory.)"))
     parser.add_argument('-D', action='store', type=int, dest='decimationInterval',
                         default=1, help=("Set the decimation level where 1=write every other ping (Default 1).\n" +
                                          "\t The output file is written in the executed directory appended with Dd,\n" +
@@ -4511,6 +4515,14 @@ def main(args=None):
     extractsensorposition = args.extractsensorposition
     decimationInterval = args.decimationInterval
     extractstatistics = args.extractstatistics
+    outputdirectory = args.outputdirectory
+
+    # Extracted data is written to the current working directory unless an
+    # output directory is specified.
+    if outputdirectory is None:
+        outputdirectory = os.getcwd()
+    else:
+        os.makedirs(outputdirectory, exist_ok=True)
 
     if decimationInterval > 1:
         decimate = True
@@ -4776,14 +4788,17 @@ def main(args=None):
         if extractpinginfo == True:
             pinginfo = K.extractPingInfo()
             if pinginfo is not None:
-                pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
+                pinginfo.to_csv(os.path.join(outputdirectory,
+                                             'PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv'))
 
         elif extractpinginfo_ii is not None:
-            pinginfo = K.extractPingInfo(interval=extractpinginfo_ii) 
-            pinginfo.to_csv('PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv')
+            pinginfo = K.extractPingInfo(interval=extractpinginfo_ii)
+            if pinginfo is not None:
+                pinginfo.to_csv(os.path.join(outputdirectory,
+                                             'PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv'))
 
         # Extract statistics from the file.
-        if extractstatistics is not None:
+        if extractstatistics:
 
             pinginfo = K.extractPingInfo()
            
@@ -4835,16 +4850,17 @@ def main(args=None):
             sensorData = K.extractSensorPosition()
             
         if sensorData is not None:
-            sensorData.to_csv('SensorPosition_' + 
-                              os.path.dirname(K.filename).replace('../','').replace('./','').replace('/','_') + 
-                              '_' + os.path.basename(K.filename[:-6]) + '.csv')
+            sensorData.to_csv(os.path.join(outputdirectory,
+                              'SensorPosition_' +
+                              os.path.dirname(K.filename).replace('../','').replace('./','').replace('/','_') +
+                              '_' + os.path.basename(K.filename[:-6]) + '.csv'))
 
         ###########################################################################
         # End file processing loop
         ###########################################################################
 
-    if extractstatistics is not None:
-        print("Total distance travelled: %0.3f nautical miles (%0.3f meters)" % 
+    if extractstatistics:
+        print("Total distance travelled: %0.3f nautical miles (%0.3f meters)" %
               (totalDistanceTraveled_NM, totalDistanceTraveled_M))
         
 
@@ -4860,7 +4876,8 @@ def main(args=None):
             # Catch teh case when there's a trailing /
             if basename == '':
                 basename = os.path.basename(kmall_directory[:-1])
-            runtimeData.to_csv('RuntimeParameters_' + basename + '.csv')
+            runtimeData.to_csv(os.path.join(outputdirectory,
+                                            'RuntimeParameters_' + basename + '.csv'))
 
         elif kmall_filename is not None:
             for key in runtimeData.keys():
@@ -4869,8 +4886,8 @@ def main(args=None):
                     print(row[key], end= ' ')
                 print("")
                 
-            runtimeData.to_csv('RuntimeParameters_' + 
-                    os.path.basename(K.filename[:-6]) + '.csv')
+            runtimeData.to_csv(os.path.join(outputdirectory,
+                    'RuntimeParameters_' + os.path.basename(K.filename[:-6]) + '.csv'))
 
 
 
