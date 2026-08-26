@@ -15,9 +15,13 @@ import os
 import re
 import bz2
 import copy
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from pyproj import Proj
 from scipy import stats
+from concurrent.futures import ProcessPoolExecutor
+import io
+import contextlib
+import traceback
 
 import itertools
 
@@ -4450,6 +4454,314 @@ class kmall():
             None    
 
 
+FileResult = namedtuple('FileResult',
+                         ['filename', 'output', 'success', 'error',
+                          'runtimeParams', 'distanceTraveled_m'])
+
+
+def process_one_file(filename, args, idx, nfiles):
+    """Process a single kmall file according to the flags in `args`.
+
+    Returns a FileResult. Runs inside a worker process when a directory of
+    files is being processed in parallel; all output produced while
+    processing this file is captured in `output` so the caller can print it
+    in file order once the worker returns, and any exception is captured
+    (rather than raised) so one bad file doesn't abort the whole batch.
+    """
+    buf = io.StringIO()
+    runtimeParams = None
+    distanceTraveled_m = None
+
+    verbose = args.verbose
+    printLatLonZ = args.printLatLonZ
+    verify = args.verify
+    compress = args.compress
+    decompress = args.decompress
+    compressionLevel = args.compressionLevel
+    runtimeparams = args.runtimeparams
+    extractpinginfo = args.extractpinginfo
+    extractpinginfo_ii = args.extractpinginfo_ii
+    extractsensorposition = args.extractsensorposition
+    extractstatistics = args.extractstatistics
+    decimationInterval = args.decimationInterval
+    decimate = decimationInterval > 1
+    outputdirectory = args.outputdirectory
+
+    try:
+        with contextlib.redirect_stdout(buf):
+            print("")
+            print("Processing %d of %d: %s" % (idx, nfiles, filename))
+
+            # Create the class instance.
+            K = kmall(filename)
+            K.verbose = verbose
+            if K.verbose >= 1:
+                print("Processing file: %s" % K.filename)
+
+            # Index file (check for index)
+            K.index_file()
+
+            # Print Latitude Longitude and Depth.
+            if printLatLonZ:
+                K.printLonLatZ()
+                return FileResult(filename, buf.getvalue(), True, None, None, None)
+
+            ## Do packet verification if requested.
+            pingcheckdata = []
+            navcheckdata = []
+            if verify:
+
+                K.report_packet_types()
+
+                pingcheckdata.append([x for x in K.check_ping_count()])
+
+                K.extract_attitude()
+                # Report gaps in attitude data.
+                dt_att = np.diff([x.timestamp() for x in K.att["datetime"]])
+
+                navcheckdata.append([np.min(np.abs(dt_att)),
+                                     np.max(dt_att),
+                                     np.mean(dt_att),
+                                     1.0 / np.mean(dt_att),
+                                     sum(dt_att >= 1.0)])
+                print("Packet statistics:")
+
+                # Create DataFrame to make printing easier.
+                DataCheck = pd.DataFrame([x + y for x, y in zip(pingcheckdata, navcheckdata)], columns=
+                ['File', 'Npings', 'NpingsMissing', 'NMissingMRZ'] +
+                ['NavMinTimeGap', 'NavMaxTimeGap', 'NavMeanTimeGap', 'NavMeanFreq', 'NavNGaps>1s'])
+                pd.set_option('display.max_columns', 30)
+                pd.set_option('display.expand_frame_repr', False)
+                print(DataCheck)
+
+            ## Do compression if desired, at the desired level.
+            if compress:
+
+                if compressionLevel == 0:
+
+                    print("Compressing soundings and imagery.")
+                    compressedFilename = K.filename + ".0z"
+
+                    # Modify filename if the file already exists
+                    fnidx = 1
+                    while os.path.exists(compressedFilename):
+                        compressedFilename = ((K.filename + "_" + "%02d.0z") % fnidx)
+                        fnidx += 1
+
+                    T = kmall(compressedFilename)
+                    K.index_file()
+                    T.OpenFiletoWrite()
+
+                    for offset, size, mtype in zip(K.Index['ByteOffset'],
+                                                   K.Index['MessageSize'],
+                                                   K.Index['MessageType']):
+                        K.FID.seek(offset, 0)
+                        if mtype == "b'#MRZ'":
+                            dg = K.read_EMdgmMRZ()
+                            T.write_EMdgmCZ0(dg)
+                        else:
+                            buffer = K.FID.read(size)
+                            T.FID.write(buffer)
+
+                    K.closeFile()
+                    T.closeFile()
+
+                if compressionLevel == 1:
+
+                    print("Compressing soundings, omitting imagery.")
+                    compressedFilename = K.filename + ".1z"
+
+                    # Modify filename if the file already exists
+                    fnidx = 1
+                    while os.path.exists(compressedFilename):
+                        compressedFilename = compressedFilename + "_" + str(fnidx)
+
+                    T = kmall(compressedFilename)
+                    K.index_file()
+                    T.OpenFiletoWrite()
+
+                    for offset, size, mtype in zip(K.Index['ByteOffset'],
+                                                   K.Index['MessageSize'],
+                                                   K.Index['MessageType']):
+                        K.FID.seek(offset, 0)
+                        if mtype == "b'#MRZ'":
+                            dg = K.read_EMdgmMRZ()
+                            T.write_EMdgmCZ1(dg)
+                        else:
+                            buffer = K.FID.read(size)
+                            T.FID.write(buffer)
+
+                    K.closeFile()
+                    T.closeFile()
+
+            # Decompress the file is requested.
+            if decompress:
+
+                # Discern the compression level and base filename.
+                regexp = '(?P<basename>.*\\.kmall)\\.(?P<level>\\d+)z'
+                tokens = re.search(regexp, K.filename)
+                if tokens is None:
+                    print("Could not discern compression level.")
+                    print("Expecting xxxxx.kmall.\\d+.z, where \\d+ is 1 or more")
+                    print("integers indicating the compression level.")
+                    raise ValueError("Could not discern compression level for %s" % K.filename)
+
+                fileBasename = tokens['basename']
+                compressionLevel_decoded = tokens['level']
+
+                # Give some status.
+                if compressionLevel_decoded == "0":
+                    print("Decompressing soundings and imagery.(Level: 0)")
+                elif compressionLevel_decoded == "1":
+                    print("Decompessing soundings, imagery was omitted in this format. (Level: 1)")
+
+                decompressedFilename = fileBasename
+                # Check to see if decompressed filename exists and modify if necessary.
+                fnidx = 1
+                while os.path.exists(decompressedFilename):
+                    decompressedFilename = ((fileBasename[:-6] +
+                                             "_" + "%02d" + '.kmall') % fnidx)
+                    fnidx += 1
+
+                if verbose >= 1:
+                    print("Decompressing to: %s" % decompressedFilename)
+                    print("Decompressing from Level: %s" % compressionLevel_decoded)
+
+                # Create kmall object for decompressed file and open it.
+                T = kmall(filename=decompressedFilename)
+                T.OpenFiletoWrite()
+
+                # Loop through the file, decompressing datagrams
+                # when necessary and just writing them when not.
+                for offset, size, mtype in zip(K.Index['ByteOffset'],
+                                               K.Index['MessageSize'],
+                                               K.Index['MessageType']):
+                    K.FID.seek(offset, 0)
+                    if compressionLevel_decoded == "0":
+
+                        if mtype == "b'#CZ0'":
+                            dg = K.read_EMdgmCZ0()
+                            T.write_EMdgmMRZ(dg)
+                        else:
+                            buffer = K.FID.read(size)
+                            T.FID.write(buffer)
+
+                    if compressionLevel_decoded == "1":
+
+                        if mtype == "b'#CZ1'":
+                            dg = K.read_EMdgmCZ1()
+                            T.write_EMdgmMRZ(dg)
+                        else:
+                            buffer = K.FID.read(size)
+                            T.FID.write(buffer)
+
+                T.closeFile()
+                K.closeFile()
+
+            ## Decimate the ping data by a desired factor.
+            if decimate:
+
+                print("Decimating soundings and imagery.")
+
+                decimatedFilename = K.filename + ".%dd" % decimationInterval
+
+                T = kmall(decimatedFilename)
+                T.OpenFiletoWrite()
+                K.index_file()
+
+                msgCnt = 0
+                for offset, size, mtype in zip(K.Index['ByteOffset'],
+                                                   K.Index['MessageSize'],
+                                                   K.Index['MessageType']):
+                    msgCnt += 1
+                    K.FID.seek(offset, 0)
+
+                    if mtype == "b'#MRZ'":
+                        if np.mod(msgCnt, decimationInterval + 1) == 0:
+                            dg = K.read_EMdgmMRZ()
+                            T.write_EMdgmMRZ(dg)
+                    else:
+                        buffer = K.FID.read(size)
+                        T.FID.write(buffer)
+
+                K.closeFile()
+                T.closeFile()
+
+            ## Extract Runtime Parameters from the file.
+            if runtimeparams:
+                runtimeParams = K.extractRuntimeParameters()
+
+            # Extract pinginfo from the file at the full rate or at some interval.
+            pinginfo = None
+            if extractpinginfo == True:
+                pinginfo = K.extractPingInfo()
+                if pinginfo is not None:
+                    pinginfo.to_csv(os.path.join(outputdirectory,
+                                                 'PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv'))
+
+            elif extractpinginfo_ii is not None:
+                pinginfo = K.extractPingInfo(interval=extractpinginfo_ii)
+                if pinginfo is not None:
+                    pinginfo.to_csv(os.path.join(outputdirectory,
+                                                 'PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv'))
+
+            # Extract statistics from the file.
+            if extractstatistics:
+
+                if pinginfo is None:
+                    pinginfo = K.extractPingInfo()
+
+                # This method of calculating distance traveled is producing a longer
+                # distance than what one might measure in a GIS program.  This is
+                # because it is calculating the distance traveled between each ping
+                # and summing them up.  This is not the same as the distance traveled
+                # between the first and last ping for a linear segment. But segments
+                # are not always linear, so this is a good approximation of the total.
+
+                if pinginfo is not None:
+
+                    latmean = np.mean(pinginfo['latitude_deg'])
+                    lonmean = np.mean(pinginfo['longitude_deg'])
+                    utmzone = int((lonmean + 180) / 6) + 1
+
+                    if latmean < 0:
+                        proj_utm = Proj(proj='utm', zone=utmzone, ellps='WGS84', south=True)
+                    else:
+                        proj_utm = Proj(proj='utm', zone=utmzone, ellps='WGS84', south=False)
+
+                    easting, northing = proj_utm(pinginfo['longitude_deg'],
+                                                 pinginfo['latitude_deg'])
+
+                    # Remove zero values, which are often present.
+                    nonzero = (easting != 0) & (northing != 0)
+                    easting = easting[nonzero]
+                    northing = northing[nonzero]
+                    # Remove outliers that are more than 100m away from the previous point.
+                    dxm = np.diff(easting)
+                    dym = np.diff(northing)
+                    mask = (np.abs(dxm) < 100) & (np.abs(dym) < 100)
+                    dxm = dxm[mask]
+                    dym = dym[mask]
+
+                    distanceTraveled_m = float(np.sum(np.sqrt(dym**2 + dxm**2)))
+
+            sensorData = None
+            if extractsensorposition == True:
+                sensorData = K.extractSensorPosition()
+
+            if sensorData is not None:
+                sensorData.to_csv(os.path.join(outputdirectory,
+                                  'SensorPosition_' +
+                                  os.path.dirname(K.filename).replace('../', '').replace('./', '').replace('/', '_') +
+                                  '_' + os.path.basename(K.filename[:-6]) + '.csv'))
+
+        return FileResult(filename, buf.getvalue(), True, None, runtimeParams, distanceTraveled_m)
+
+    except Exception:
+        error = traceback.format_exc()
+        return FileResult(filename, buf.getvalue(), False, error, runtimeParams, distanceTraveled_m)
+
+
 def main(args=None):
     ''' Commandline script code.'''
     if args == None:
@@ -4486,7 +4798,7 @@ def main(args=None):
     parser.add_argument('-i', action='store_true', dest='extractpinginfo',
                         default=False, help=("Extract all pinginfo records from a file to stdout."))
     parser.add_argument("-ii", action="store", dest="extractpinginfo_ii", type=float,
-                        default=None, help="-ii <interval> Extracts pinginfo at <interval> seconds.")   
+                        default=None, help="-ii <interval> Extracts pinginfo at <interval> seconds.")
     parser.add_argument('-o', action='store', dest='outputdirectory',
                         default=None, help=("-o <directory> Write extracted pinginfo, runtime parameter and "
                                             "sensor position files to <directory>. The directory is created "
@@ -4494,26 +4806,20 @@ def main(args=None):
     parser.add_argument('-D', action='store', type=int, dest='decimationInterval',
                         default=1, help=("Set the decimation level where 1=write every other ping (Default 1).\n" +
                                          "\t The output file is written in the executed directory appended with Dd,\n" +
-                                         "\t where D is the specified decimation level."))                 
+                                         "\t where D is the specified decimation level."))
+    parser.add_argument('-w', '--workers', action='store', type=int, dest='workers',
+                        default=4, help=("Number of parallel worker processes to use when processing "
+                                         "a directory of files (Default 4)."))
     parser.add_argument('-v', action='count', dest='verbose', default=0,
                         help="Increasingly verbose output (e.g. -v -vv -vvv),"
                              "for debugging use -vvv")
     args = parser.parse_args()
 
     verbose = args.verbose
-
     kmall_filename = args.kmall_filename
     kmall_directory = args.kmall_directory
-    verify = args.verify
-    compress = args.compress
-    decompress = args.decompress
     compressionLevel = args.compressionLevel
-    printLatLonZ = args.printLatLonZ
     runtimeparams = args.runtimeparams
-    extractpinginfo = args.extractpinginfo
-    extractpinginfo_ii = args.extractpinginfo_ii
-    extractsensorposition = args.extractsensorposition
-    decimationInterval = args.decimationInterval
     extractstatistics = args.extractstatistics
     outputdirectory = args.outputdirectory
 
@@ -4523,27 +4829,16 @@ def main(args=None):
         outputdirectory = os.getcwd()
     else:
         os.makedirs(outputdirectory, exist_ok=True)
+    # Store the resolved directory back so worker processes (which only see
+    # `args`, not this local variable) write to the same place.
+    args.outputdirectory = outputdirectory
 
-    if decimationInterval > 1:
-        decimate = True
-    else:
-        decimate = False    
-
-    runtimeData = []
-    pinginfo = None
-    sensorData = None
-    totalDistanceTraveled_NM = 0.0
-    totalDistanceTraveled_M = 0.0
-    totalDistanceTraveled_M2 = 0.0
-    
     validCompressionLevels = [0, 1]
     if compressionLevel not in validCompressionLevels:
         print("Error: Compression level may be one of " + str(validCompressionLevels))
         sys.exit()
 
     suffix = "kmall"
-    if decompress:
-        suffix
 
     if kmall_directory:
         filestoprocess = []
@@ -4563,313 +4858,60 @@ def main(args=None):
         print("No files found to process.")
         sys.exit()
 
-    q = 1
     Nfiles = len(filestoprocess)
-    for filename in filestoprocess:
-        print("")
-        print("Processing %d of %d: %s" % (q,Nfiles,filename))
-        q += 1
-        # Create the class instance.
-        K = kmall(filename)
-        K.verbose = args.verbose
-        if (K.verbose >= 1):
-            print("Processing file: %s" % K.filename)
 
-        # Index file (check for index)
-        K.index_file()
+    # Process files in a small worker pool when there's more than one to
+    # process; a single file is processed directly in-process to avoid pool
+    # startup overhead. Each worker's output is captured and printed here in
+    # file order once its result is available, and a failure in one file is
+    # reported without aborting the rest of the batch.
+    if Nfiles > 1:
+        results = []
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = [executor.submit(process_one_file, filename, args, i + 1, Nfiles)
+                       for i, filename in enumerate(filestoprocess)]
+            for future in futures:
+                results.append(future.result())
+    else:
+        results = [process_one_file(filestoprocess[0], args, 1, Nfiles)]
 
-        # Print Latitude Longitude and Depth.
-        if printLatLonZ:
-            K.printLonLatZ()
-            return
+    runtimeData = []
+    totalDistanceTraveled_NM = 0.0
+    totalDistanceTraveled_M = 0.0
+    failedFiles = []
 
-        ## Do packet verification if requested.
-        pingcheckdata = []
-        navcheckdata = []
-        if verify:
+    for result in results:
+        print(result.output, end='')
+        if not result.success:
+            print("FAILED: %s" % result.filename)
+            print(result.error)
+            failedFiles.append(result.filename)
+            continue
 
-            K.report_packet_types()
+        if result.runtimeParams is not None:
+            runtimeData.append(result.runtimeParams)
 
-            pingcheckdata.append([x for x in K.check_ping_count()])
-
-            K.extract_attitude()
-            # Report gaps in attitude data.
-            dt_att = np.diff([x.timestamp() for x in K.att["datetime"]])
-            #dt_att = np.diff(K.att["datetime"])
-
-            navcheckdata.append([np.min(np.abs(dt_att)),
-                                 np.max(dt_att),
-                                 np.mean(dt_att),
-                                 1.0 / np.mean(dt_att),
-                                 sum(dt_att >= 1.0)])
-            # print("Navigation Gaps min: %0.3f, max: %0.3f, mean: %0.3f (%0.3fHz)" %
-            #      (np.min(np.abs(dt_att)),np.max(dt_att),np.mean(dt_att),1.0/np.mean(dt_att)))
-            # print("Navigation Gaps >= 1s: %d" % sum(dt_att >= 1.0))
-            print("Packet statistics:")
-
-            # Print column headers
-            # print('%s' % "\t".join(['File','Npings','NpingsMissing','NMissingMRZ'] +
-            #                         ['Nav Min Time Gap','Nav Max Time Gap', 'Nav Mean Time Gap','Nav Mean Freq','Nav N Gaps >1s']))
-
-            # Print columns
-            # for x,y in zip(pingcheckdata,navcheckdata):
-            #    row = x+y
-            #    #print(row)
-            #    print("\t".join([str(x) for x in row]))
-
-            # Create DataFrame to make printing easier.
-            DataCheck = pd.DataFrame([x + y for x, y in zip(pingcheckdata, navcheckdata)], columns=
-            ['File', 'Npings', 'NpingsMissing', 'NMissingMRZ'] +
-            ['NavMinTimeGap', 'NavMaxTimeGap', 'NavMeanTimeGap', 'NavMeanFreq', 'NavNGaps>1s'])
-            # K.navDataCheck = pd.DataFrame(navcheckdata,columns=['Min Time Gap','Max Time Gap', 'Mean Time Gap','Mean Freq','N Gaps >1s'])
-            pd.set_option('display.max_columns', 30)
-            pd.set_option('display.expand_frame_repr', False)
-            print(DataCheck)
-
-        ## Do compression if desired, at the desired level.
-        if compress:
-
-            if compressionLevel == 0:
-
-                print("Compressing soundings and imagery.")
-                compressedFilename = K.filename + ".0z"
-
-                # Modify filename if the file already exists
-                idx = 1
-                while os.path.exists(compressedFilename):
-                    compressedFilename = ((K.filename + "_" + "%02d.0z") % idx)
-                    idx += 1
-
-                T = kmall(compressedFilename)
-                K.index_file()
-                T.OpenFiletoWrite()
-
-                for offset, size, mtype in zip(K.Index['ByteOffset'],
-                                               K.Index['MessageSize'],
-                                               K.Index['MessageType']):
-                    K.FID.seek(offset, 0)
-                    if mtype == "b'#MRZ'":
-                        dg = K.read_EMdgmMRZ()
-                        T.write_EMdgmCZ0(dg)
-                    else:
-                        buffer = K.FID.read(size)
-                        T.FID.write(buffer)
-
-                K.closeFile()
-                T.closeFile()
-
-            if compressionLevel == 1:
-
-                print("Compressing soundings, omitting imagery.")
-                compressedFilename = K.filename + ".1z"
-
-                # Modify filename if the file already exists
-                idx = 1
-                while os.path.exists(compressedFilename):
-                    compressedFilename = compressedFilename + "_" + str(idx)
-
-                T = kmall(compressedFilename)
-                K.index_file()
-                T.OpenFiletoWrite()
-
-                for offset, size, mtype in zip(K.Index['ByteOffset'],
-                                               K.Index['MessageSize'],
-                                               K.Index['MessageType']):
-                    K.FID.seek(offset, 0)
-                    if mtype == "b'#MRZ'":
-                        dg = K.read_EMdgmMRZ()
-                        T.write_EMdgmCZ1(dg)
-                    else:
-                        buffer = K.FID.read(size)
-                        T.FID.write(buffer)
-
-                K.closeFile()
-                T.closeFile()
-
-        # Decompress the file is requested.
-        if decompress:
-
-            # Discern the compression level and base filename.
-            regexp = '(?P<basename>.*\\.kmall)\\.(?P<level>\\d+)z'
-            tokens = re.search(regexp, K.filename)
-            if tokens is None:
-                print("Could not discern compression level.")
-                print("Expecting xxxxx.kmall.\\d+.z, where \\d+ is 1 or more")
-                print("integers indicating the compression level.")
-                sys.exit()
-
-            fileBasename = tokens['basename']
-            compressionLevel = tokens['level']
-
-            # Give some status.
-            if compressionLevel == "0":
-                print("Decompressing soundings and imagery.(Level: 0)")
-            elif compressionLevel == "1":
-                print("Decompessing soundings, imagery was omitted in this format. (Level: 1)")
-
-            decompressedFilename = fileBasename
-            # Check to see if decompressed filename exists and modify if necessary.
-            idx = 1
-            while os.path.exists(decompressedFilename):
-                decompressedFilename = ((fileBasename[:-6] +
-                                         "_" + "%02d" + '.kmall') % idx)
-                idx += 1
-
-            if verbose >= 1:
-                print("Decompressing to: %s" % decompressedFilename)
-                print("Decompressing from Level: %s" % compressionLevel)
-
-            # Create kmall object for decompressed file and open it.
-            T = kmall(filename=decompressedFilename)
-            T.OpenFiletoWrite()
-
-            # Loop through the file, decompressing datagrams
-            # when necessary and just writing them when not.
-            for offset, size, mtype in zip(K.Index['ByteOffset'],
-                                           K.Index['MessageSize'],
-                                           K.Index['MessageType']):
-                K.FID.seek(offset, 0)
-                if compressionLevel == "0":
-
-                    if mtype == "b'#CZ0'":
-                        dg = K.read_EMdgmCZ0()
-                        T.write_EMdgmMRZ(dg)
-                    else:
-                        buffer = K.FID.read(size)
-                        T.FID.write(buffer)
-
-                if compressionLevel == "1":
-
-                    if mtype == "b'#CZ1'":
-                        dg = K.read_EMdgmCZ1()
-                        T.write_EMdgmMRZ(dg)
-                    else:
-                        buffer = K.FID.read(size)
-                        T.FID.write(buffer)
-
-            T.closeFile()
-            K.closeFile()
-
-        ## Decimate the ping data by a desired factor.
-        if decimate:
-
-
-            print("Decimating soundings and imagery.")
-    
-            decimatedFilename = K.filename + ".%dd" % decimationInterval
-
-            T = kmall(decimatedFilename)
-            T.OpenFiletoWrite()
-            K.index_file()
-
-            msgCnt = 0
-            for offset, size, mtype in zip(K.Index['ByteOffset'],
-                                               K.Index['MessageSize'],
-                                               K.Index['MessageType']):
-                msgCnt+=1
-                K.FID.seek(offset, 0)
-
-                if mtype == "b'#MRZ'":
-                    if np.mod(msgCnt, decimationInterval+1) == 0:
-                        dg = K.read_EMdgmMRZ()
-                        T.write_EMdgmMRZ(dg)
-                else:
-                    buffer = K.FID.read(size)
-                    T.FID.write(buffer)
-
-            K.closeFile()
-            T.closeFile()
-
-        ## Extract Runtime Parameters from the file.
-        if runtimeparams:
-            runtimeData.append(K.extractRuntimeParameters())
-
-        # Extract pinginfo from the file at the full rate or at some interval.
-        if extractpinginfo == True:
-            pinginfo = K.extractPingInfo()
-            if pinginfo is not None:
-                pinginfo.to_csv(os.path.join(outputdirectory,
-                                             'PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv'))
-
-        elif extractpinginfo_ii is not None:
-            pinginfo = K.extractPingInfo(interval=extractpinginfo_ii)
-            if pinginfo is not None:
-                pinginfo.to_csv(os.path.join(outputdirectory,
-                                             'PingInfo_' + os.path.basename(K.filename[:-6]) + '.csv'))
-
-        # Extract statistics from the file.
-        if extractstatistics:
-
-            pinginfo = K.extractPingInfo()
-           
-            # This method of calculating distance traveled is producing a longer
-            # distance than what one might measure in a GIS program.  This is
-            # because it is calculating the distance traveled between each ping
-            # and summing them up.  This is not the same as the distance traveled
-            # between the first and last ping for a linear segment. But segments
-            # are not always linear, so this is a good approximation of the total.
-            
-            if pinginfo is not None:
-
-                latmean = np.mean(pinginfo['latitude_deg'])
-                lonmean = np.mean(pinginfo['longitude_deg'])
-                utmzone = int((lonmean + 180) / 6) + 1
-
-                if latmean < 0:
-                    # print("Southern Hemisphere")
-                    proj_utm = Proj(proj='utm', zone=utmzone, ellps='WGS84', south=True)
-                else:
-                    proj_utm = Proj(proj='utm', zone=utmzone, ellps='WGS84', south=False)
-
-                easting, northing = proj_utm(pinginfo['longitude_deg'], 
-                                             pinginfo['latitude_deg'])
-
-                # Remove zero values, which are often present.
-                nonzero = (easting != 0) & (northing != 0)
-                easting = easting[nonzero]
-                northing = northing[nonzero]
-                # Remove outliers that are more than 100m away from the previous point.
-                dxm = np.diff(easting)
-                dym = np.diff(northing)
-                mask = (np.abs(dxm) < 100) & (np.abs(dym) < 100)
-                dxm = dxm[mask]
-                dym = dym[mask]
-                
-                #distanceTraveled2 = np.sqrt((easting[0]-easting[-1])**2 +
-                #                            (northing[0]-northing[-1])**2)
-                distanceTraveled_m = np.sum(np.sqrt(dym**2 + dxm**2))
-
-                totalDistanceTraveled_NM += distanceTraveled_m / 1852.0
-                totalDistanceTraveled_M += distanceTraveled_m
-                #totalDistanceTraveled_M2 += distanceTraveled2
-
-            #stats = K.extractStatistics()
-            #stats['distanceTraveled'] = distanceTraveled
-
-
-        if extractsensorposition == True:
-            sensorData = K.extractSensorPosition()
-            
-        if sensorData is not None:
-            sensorData.to_csv(os.path.join(outputdirectory,
-                              'SensorPosition_' +
-                              os.path.dirname(K.filename).replace('../','').replace('./','').replace('/','_') +
-                              '_' + os.path.basename(K.filename[:-6]) + '.csv'))
-
-        ###########################################################################
-        # End file processing loop
-        ###########################################################################
+        if result.distanceTraveled_m is not None:
+            totalDistanceTraveled_M += result.distanceTraveled_m
+            totalDistanceTraveled_NM += result.distanceTraveled_m / 1852.0
 
     if extractstatistics:
-        print("Total distance travelled: %0.3f nautical miles (%0.3f meters)" %
-              (totalDistanceTraveled_NM, totalDistanceTraveled_M))
-        
+        msg = ("Total distance travelled: %0.3f nautical miles (%0.3f meters)" %
+               (totalDistanceTraveled_NM, totalDistanceTraveled_M))
+        if failedFiles:
+            msg += ("  [NOTE: %d file(s) failed to process and were excluded: %s]" %
+                    (len(failedFiles), ", ".join(failedFiles)))
+        print(msg)
 
+    if failedFiles:
+        print("")
+        print("%d of %d file(s) failed to process:" % (len(failedFiles), Nfiles))
+        for f in failedFiles:
+            print("  " + f)
 
     # Process and print runtime parameters.
     if runtimeData.__len__() != 0:
         runtimeData = pd.concat(runtimeData)
-
 
     if runtimeparams:
         if kmall_directory is not None:
@@ -4886,9 +4928,9 @@ def main(args=None):
                 for index,row in runtimeData.iterrows():
                     print(row[key], end= ' ')
                 print("")
-                
+
             runtimeData.to_csv(os.path.join(outputdirectory,
-                    'RuntimeParameters_' + os.path.basename(K.filename[:-6]) + '.csv'))
+                    'RuntimeParameters_' + os.path.basename(kmall_filename[:-6]) + '.csv'))
 
 
 
