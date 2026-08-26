@@ -4825,8 +4825,9 @@ def main(args=None):
                                              pinginfo['latitude_deg'])
 
                 # Remove zero values, which are often present.
-                easting = easting[easting != 0]
-                northing = northing[northing != 0]
+                nonzero = (easting != 0) & (northing != 0)
+                easting = easting[nonzero]
+                northing = northing[nonzero]
                 # Remove outliers that are more than 100m away from the previous point.
                 dxm = np.diff(easting)
                 dym = np.diff(northing)
