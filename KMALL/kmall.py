@@ -5,6 +5,24 @@
 A python class to read Kongsberg KMALL data format for swath mapping
 bathymetric echosounders.
 """
+import warnings
+
+# pyproj emits a couple of noisy but harmless warnings: a UserWarning about
+# not being able to set a PROJ CA bundle path (irrelevant here since we
+# never do network-based transforms) fires the moment pyproj is imported,
+# and, on some pyproj versions, a FutureWarning about a deprecated calling
+# convention. Both are silenced narrowly by message text rather than
+# blanket-suppressing the pyproj module (so an unrelated future warning
+# would still surface), and the filters must be registered before pyproj
+# is imported below, since the UserWarning fires at import time - under
+# multiprocessing this module (and these filterwarnings calls) get
+# re-run fresh in every worker process, so the suppression applies there
+# too, not just in the main process.
+warnings.filterwarnings("ignore", message=r"pyproj unable to set PROJ database path\.",
+                         category=UserWarning, module=r"pyproj.*")
+warnings.filterwarnings("ignore", message=r"This function is deprecated\.",
+                         category=FutureWarning, module=r"pyproj.*")
+
 import pandas as pd
 import sys
 import numpy as np
@@ -4880,10 +4898,13 @@ def main(args=None):
     # file order once its result is available, and a failure in one file is
     # reported without aborting the rest of the batch.
     if Nfiles > 1:
+        print("Queuing %d files across %d worker process(es)." % (Nfiles, args.workers), flush=True)
         results = []
         with ProcessPoolExecutor(max_workers=args.workers) as executor:
-            futures = [executor.submit(process_one_file, filename, args, i + 1, Nfiles)
-                       for i, filename in enumerate(filestoprocess)]
+            futures = []
+            for i, filename in enumerate(filestoprocess):
+                print("Queued %d of %d: %s" % (i + 1, Nfiles, filename), flush=True)
+                futures.append(executor.submit(process_one_file, filename, args, i + 1, Nfiles))
             for future in futures:
                 results.append(future.result())
     else:
@@ -4895,10 +4916,10 @@ def main(args=None):
     failedFiles = []
 
     for result in results:
-        print(result.output, end='')
+        print(result.output, end='', flush=True)
         if not result.success:
-            print("FAILED: %s" % result.filename)
-            print(result.error)
+            print("FAILED: %s" % result.filename, flush=True)
+            print(result.error, flush=True)
             failedFiles.append(result.filename)
             continue
 
@@ -4915,13 +4936,13 @@ def main(args=None):
         if failedFiles:
             msg += ("  [NOTE: %d file(s) failed to process and were excluded: %s]" %
                     (len(failedFiles), ", ".join(failedFiles)))
-        print(msg)
+        print(msg, flush=True)
 
     if failedFiles:
-        print("")
-        print("%d of %d file(s) failed to process:" % (len(failedFiles), Nfiles))
+        print("", flush=True)
+        print("%d of %d file(s) failed to process:" % (len(failedFiles), Nfiles), flush=True)
         for f in failedFiles:
-            print("  " + f)
+            print("  " + f, flush=True)
 
     # Process and print runtime parameters.
     if runtimeData.__len__() != 0:
