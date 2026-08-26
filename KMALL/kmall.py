@@ -4454,6 +4454,12 @@ class kmall():
             None    
 
 
+# Minimum spacing (seconds) between pings kept for the -S distance-traveled
+# calculation. Coarser than this wastes time parsing pings that don't
+# meaningfully change the answer; finer than this risks missing turns in
+# shallow water with a very high ping rate.
+STATS_PING_INTERVAL_S = 1.0
+
 FileResult = namedtuple('FileResult',
                          ['filename', 'output', 'success', 'error',
                           'runtimeParams', 'distanceTraveled_m'])
@@ -4709,7 +4715,15 @@ def process_one_file(filename, args, idx, nfiles):
             if extractstatistics:
 
                 if pinginfo is None:
-                    pinginfo = K.extractPingInfo()
+                    # Distance traveled doesn't need every ping. Decimate to
+                    # roughly one ping per second, which is plenty for a
+                    # distance estimate; extractPingInfo() only parses the
+                    # pings it keeps, so this skips parsing the (unused)
+                    # extra pings in shallow water where the ping rate is
+                    # high. In deep water, pings are typically already
+                    # spaced out more than a second apart, so nothing extra
+                    # gets dropped there.
+                    pinginfo = K.extractPingInfo(interval=STATS_PING_INTERVAL_S)
 
                 # This method of calculating distance traveled is producing a longer
                 # distance than what one might measure in a GIS program.  This is
