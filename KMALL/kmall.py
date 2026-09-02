@@ -3312,18 +3312,40 @@ class kmall():
         self.msgtype = []
         self.pktcnt = 0
 
+        # Datagram header layout: 4-byte length field, followed by the
+        # fixed-size header fields below. Only these bytes are needed to
+        # build the index, so the remainder of each datagram is skipped
+        # with a seek instead of being read into memory.
+        header_without_length = struct.Struct('ccccBBHII')
+        header_size = header_without_length.size
+
         while self.FID.tell() < self.file_size:
 
             try:
                 # Get the byte offset.
-                self.msgoffset.append(self.FID.tell())
+                offset = self.FID.tell()
+                self.msgoffset.append(offset)
 
                 # Read the first four bytes to get the datagram size.
-                msgsize = struct.unpack("I", self.FID.read(4))
-                self.msgsize.append(msgsize[0])
+                msgsize = struct.unpack("I", self.FID.read(4))[0]
+                self.msgsize.append(msgsize)
 
-                # Read the datagram.
-                msg_buffer = self.FID.read(int(self.msgsize[self.pktcnt]) - 4)
+                if msgsize < 4 + header_size:
+                    raise ValueError("Implausible datagram size")
+
+                # Read just the fixed header fields.
+                header_buffer = self.FID.read(header_size)
+                if len(header_buffer) < header_size:
+                    raise EOFError("Truncated datagram header")
+
+                (dgm_type0, dgm_type1, dgm_type2, dgm_type3, dgm_version,
+                 sysid, emid,
+                 sec,
+                 nsec) = header_without_length.unpack_from(header_buffer, 0)
+
+                # Skip over the remainder of the datagram (body + trailing
+                # length field) without reading it.
+                self.FID.seek(offset + msgsize, 0)
             except:
                 print("Error indexing file: %s at byte offset %d" % (self.filename, self.FID.tell()))
 
@@ -3332,14 +3354,6 @@ class kmall():
                 self.scanToDatagram()
 
                 continue
-
-            # Interpret the header.
-            header_without_length = struct.Struct('ccccBBHII')
-
-            (dgm_type0, dgm_type1, dgm_type2, dgm_type3, dgm_version,
-             sysid, emid,
-             sec,
-             nsec) = header_without_length.unpack_from(msg_buffer, 0)
 
             dgm_type = dgm_type0 + dgm_type1 + dgm_type2 + dgm_type3
 
