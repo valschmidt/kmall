@@ -4533,7 +4533,6 @@ def process_one_file(filename, args, idx, nfiles):
     try:
         with contextlib.redirect_stdout(buf):
             print("")
-            print("Processing %d of %d: %s" % (idx, nfiles, filename))
 
             # Create the class instance.
             K = kmall(filename)
