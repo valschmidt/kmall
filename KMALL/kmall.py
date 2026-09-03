@@ -4483,7 +4483,47 @@ class kmall():
 
             return sensorDatadf
         else:
-            None    
+            None
+
+    def extractNadirDepth(self):
+        '''Extracts timestamp, latitude, longitude and nadir depth for each
+        ping as a Pandas DataFrame.
+
+        The nadir sounding is taken to be the one with the smallest
+        across-track offset (y_reRefPoint_m) from the vessel reference
+        point, i.e. the beam closest to directly beneath the vessel.
+        '''
+
+        if self.Index is None:
+            self.index_file()
+
+        MRZdgs = self.Index[self.Index['MessageType'] == "b'#MRZ'"]
+
+        nadirData = []
+        for index, row in MRZdgs.iterrows():
+            self.FID.seek(row['ByteOffset'])
+            dg = self.read_EMdgmMRZ()
+
+            yAcrossTrack_m = np.array(dg['sounding']['y_reRefPoint_m'])
+            if yAcrossTrack_m.size == 0:
+                continue
+            nadirIdx = int(np.argmin(np.abs(yAcrossTrack_m)))
+
+            nadirData.append({
+                'Timestamp_ISO8601': dg['header']['dgdatetime'].isoformat(),
+                'Timestamp_UnixEpoch': dg['header']['dgtime'],
+                'Latitude_deg': (dg['pingInfo']['latitude_deg'] +
+                                 dg['sounding']['deltaLatitude_deg'][nadirIdx]),
+                'Longitude_deg': (dg['pingInfo']['longitude_deg'] +
+                                  dg['sounding']['deltaLongitude_deg'][nadirIdx]),
+                'NadirDepth_m': (dg['sounding']['z_reRefPoint_m'][nadirIdx] -
+                                 dg['pingInfo']['z_waterLevelReRefPoint_m']),
+            })
+
+        if not nadirData:
+            return None
+
+        return pd.DataFrame(nadirData)
 
 
 # Minimum spacing (seconds) between pings kept for the -S distance-traveled
@@ -4521,6 +4561,7 @@ def process_one_file(filename, args, idx, nfiles):
     extractpinginfo_ii = args.extractpinginfo_ii
     extractsensorposition = args.extractsensorposition
     extractstatistics = args.extractstatistics
+    extractnadirdepth = args.extractnadirdepth
     decimationInterval = args.decimationInterval
     decimate = decimationInterval > 1
     outputdirectory = args.outputdirectory
@@ -4801,6 +4842,13 @@ def process_one_file(filename, args, idx, nfiles):
                                   os.path.dirname(K.filename).replace('../', '').replace('./', '').replace('/', '_') +
                                   '_' + os.path.basename(K.filename[:-6]) + '.csv'))
 
+            if extractnadirdepth:
+                nadirData = K.extractNadirDepth()
+                if nadirData is not None:
+                    nadirData.to_csv(os.path.join(outputdirectory,
+                                     'NADIR_' + os.path.basename(K.filename[:-6]) + '.csv'),
+                                     index=False)
+
         return FileResult(filename, buf.getvalue(), True, None, runtimeParams, distanceTraveled_m)
 
     except Exception:
@@ -4845,10 +4893,14 @@ def main(args=None):
                         default=False, help=("Extract all pinginfo records from a file to stdout."))
     parser.add_argument("-ii", action="store", dest="extractpinginfo_ii", type=float,
                         default=None, help="-ii <interval> Extracts pinginfo at <interval> seconds.")
+    parser.add_argument('-n', action='store_true', dest='extractnadirdepth',
+                        default=False, help=("Write timestamp (ISO8601 and Unix epoch), latitude, longitude "
+                                             "and nadir depth for each ping to a NADIR_<filename>.csv file, "
+                                             "for a file or directory of files."))
     parser.add_argument('-o', action='store', dest='outputdirectory',
-                        default=None, help=("-o <directory> Write extracted pinginfo, runtime parameter and "
-                                            "sensor position files to <directory>. The directory is created "
-                                            "if it does not exist. (Default: the current working directory.)"))
+                        default=None, help=("-o <directory> Write extracted pinginfo, runtime parameter, "
+                                            "sensor position and nadir depth files to <directory>. The directory "
+                                            "is created if it does not exist. (Default: the current working directory.)"))
     parser.add_argument('-D', action='store', type=int, dest='decimationInterval',
                         default=1, help=("Set the decimation level where 1=write every other ping (Default 1).\n" +
                                          "\t The output file is written in the executed directory appended with Dd,\n" +
