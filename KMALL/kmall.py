@@ -36,7 +36,7 @@ import copy
 from collections import OrderedDict, namedtuple
 from pyproj import Proj
 from scipy import stats
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import io
 import contextlib
 import traceback
@@ -3437,59 +3437,24 @@ class kmall():
 
         
     def listofdicts2dictoflists(self, listofdicts):
-        """ A utility  to convert a list of dicts to a dict of lists."""
-        # dg = {}
-        #
-        # # This is done in two steps, handling both dictionary items that are
-        # # lists and scalars separately. As long as no item combines both lists
-        # # and scalars the method works.
-        # #
-        # # There is some mechanism to handle this in a single list
-        # # comprehension statement, checking for types on the fly, but I cannot
-        # # find any syntax that returns the proper result.
-        # if len(listofdicts) == 0:
-        #     return None
-        #
-        # for k, v in listofdicts[0].items():
-        #     dg[k] = [item for dictitem in listofdicts
-        #              if isinstance(dictitem[k], list)
-        #              for item in dictitem[k]]
-        #     scalartmp = [dictitem[k] for dictitem in listofdicts
-        #                  if not isinstance(dictitem[k], list)]
-        #     if len(dg[k]) == 0:
-        #         dg[k] = scalartmp
-        #
-        # return dg
+        """ A utility to convert a list of dicts to a dict of lists.
 
+        This runs once per datagram (e.g. once per sounding list in every
+        MRZ ping), so it needs to be cheap. It used to round-trip through a
+        pandas DataFrame, which for these small, fixed-key dicts cost far
+        more than the plain Python conversion below.
+        """
         if listofdicts:
-            # First check to see if we might have a dictionary in the list which
-            # has a value that is itself another dictionary. In that case we need 
-            # "flatten" the dictionary. We identify them here.
-            needs_flattening = [k for (k,v) in listofdicts[0].items() if isinstance(v, list)]
+            d_of_l = {}
+            for key in listofdicts[0].keys():
+                values = [d[key] for d in listofdicts]
+                # A value that is itself a list (e.g. a dict-in-a-dict field)
+                # gets flattened into a single list rather than nested.
+                if values and isinstance(values[0], list):
+                    d_of_l[key] = [item for sublist in values for item in sublist]
+                else:
+                    d_of_l[key] = values
 
-            # Next we need to make sure every dictionary in the list has the
-            # same set of keys. If not, we add those keys with a value of None. 
-            # allkeys = [k for L in listofdicts for (k,v) in L.items()]
-            '''
-            allkeys = set().union(*listofdicts)
-            for L in listofdicts:
-                for k in allkeys:
-                    if k not in L.keys():
-                        L[k] = None
-            '''
-            # The case in which there is an extra key in a sublist (i.e. one that 
-            # needs flattening.) is not handled yet.
-
-            # Then create the dictionary of lists and handle those that need flattening.
-            # d_of_l = {k: [dic[k] for dic in listofdicts] for k in listofdicts[0]}
-            df = pd.DataFrame(listofdicts)
-            d_of_l = df.to_dict('list')                
-            
-            if needs_flattening:
-                # print('flattening {}'.format(needs_flattening))
-                for nf in needs_flattening:
-                    d_of_l[nf] = [item for sublist in d_of_l[nf] for item in sublist]
-            
             return d_of_l
             
         else:
@@ -4504,10 +4469,9 @@ class kmall():
             self.FID.seek(row['ByteOffset'])
             dg = self.read_EMdgmMRZ()
 
-            yAcrossTrack_m = np.array(dg['sounding']['y_reRefPoint_m'])
-            if yAcrossTrack_m.size == 0:
+            if not dg['sounding']['y_reRefPoint_m']:
                 continue
-            nadirIdx = int(np.argmin(np.abs(yAcrossTrack_m)))
+            nadirIdx = int(np.argmin(np.abs(dg['sounding']['y_reRefPoint_m'])))
 
             nadirData.append({
                 'Timestamp_ISO8601': dg['header']['dgdatetime'].isoformat(),
@@ -4960,29 +4924,39 @@ def main(args=None):
 
     # Process files in a small worker pool when there's more than one to
     # process; a single file is processed directly in-process to avoid pool
-    # startup overhead. Each worker's output is captured and printed here in
-    # file order once its result is available, and a failure in one file is
-    # reported without aborting the rest of the batch.
-    if Nfiles > 1:
-        print("Queuing %d files across %d worker process(es)." % (Nfiles, args.workers), flush=True)
-        results = []
-        with ProcessPoolExecutor(max_workers=args.workers) as executor:
-            futures = []
-            for i, filename in enumerate(filestoprocess):
-                print("Queued %d of %d: %s" % (i + 1, Nfiles, filename), flush=True)
-                futures.append(executor.submit(process_one_file, filename, args, i + 1, Nfiles))
-            for future in futures:
-                results.append(future.result())
-    else:
-        results = [process_one_file(filestoprocess[0], args, 1, Nfiles)]
-
+    # startup overhead. Results are picked up via as_completed(), so each
+    # file's output and status print as soon as that file finishes rather
+    # than only after every queued file is done, and a failure in one file
+    # is reported without aborting the rest of the batch.
     runtimeData = []
     totalDistanceTraveled_NM = 0.0
     totalDistanceTraveled_M = 0.0
     failedFiles = []
+    results = []
+
+    if Nfiles > 1:
+        print("Queuing %d files across %d worker process(es)." % (Nfiles, args.workers), flush=True)
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            future_to_filename = {}
+            for i, filename in enumerate(filestoprocess):
+                print("Queued %d of %d: %s" % (i + 1, Nfiles, filename), flush=True)
+                future = executor.submit(process_one_file, filename, args, i + 1, Nfiles)
+                future_to_filename[future] = filename
+
+            completedCnt = 0
+            for future in as_completed(future_to_filename):
+                completedCnt += 1
+                result = future.result()
+                results.append(result)
+                print(result.output, end='', flush=True)
+                status = "OK" if result.success else "FAILED"
+                print("Completed %d of %d (%s): %s" % (completedCnt, Nfiles, status, result.filename),
+                      flush=True)
+    else:
+        results = [process_one_file(filestoprocess[0], args, 1, Nfiles)]
+        print(results[0].output, end='', flush=True)
 
     for result in results:
-        print(result.output, end='', flush=True)
         if not result.success:
             print("FAILED: %s" % result.filename, flush=True)
             print(result.error, flush=True)
