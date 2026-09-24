@@ -4369,8 +4369,26 @@ class kmall():
         IOPdf.set_index('File',inplace=True)
         return IOPdf
 
+    @staticmethod
+    def decimateByInterval(dgs, interval=None):
+        '''Decimates index rows to at most one per time bin of <interval> seconds.
+
+        Time is divided into bins of floor(time / interval) and the first
+        datagram in each bin is kept. Timestamps are not altered, so kept
+        datagrams are not aligned to bin boundaries. When datagrams are
+        spaced further apart than <interval>, all of them are kept.
+        '''
+        if interval is None or interval <= 0:
+            return dgs
+        bins = np.floor(dgs.index.values / interval)
+        return dgs[~pd.Index(bins).duplicated()]
+
     def extractPingInfo(self,interval=None):
-        ''' Extract Ping Info from each ping in a file as a Pandas Dataframe'''
+        ''' Extract Ping Info from each ping in a file as a Pandas Dataframe
+
+        If <interval> is given, pings are decimated to the first in each
+        <interval>-second time bin (see decimateByInterval()).
+        '''
         if self.verbose > 0:
             print("Extracting Ping Info from " + self.filename)
         pingInfo=[]
@@ -4380,33 +4398,14 @@ class kmall():
         if self.verbose > 0:    
             print("Found " + str(len(IOPdgs)) + " MRZ datagrams in " + self.filename)
 
-        intervalstarttime = None
+        IOPdgs = self.decimateByInterval(IOPdgs, interval)
         for index, row in IOPdgs.iterrows():
             self.FID.seek(row['ByteOffset'])
-            if interval == None:
-                dg = self.read_EMdgmMRZ()
-                dg['pingInfo']['File'] = self.filename
-                dg['pingInfo']['dgtime'] = dg['header']['dgtime']
-                dg['pingInfo']['dgdatetime'] = dg['header']['dgdatetime']
-                pingInfo.append(dg['pingInfo'])
-                continue
-
-            if intervalstarttime == None:
-                intervalstarttime = index
-                dg = self.read_EMdgmMRZ()
-                dg['pingInfo']['File'] = self.filename
-                dg['pingInfo']['dgtime'] = dg['header']['dgtime']
-                dg['pingInfo']['dgdatetime'] = dg['header']['dgdatetime']
-                pingInfo.append(dg['pingInfo'])
-                continue
-            if (index - intervalstarttime) > interval:    
-                dg = self.read_EMdgmMRZ()
-                dg['pingInfo']['File'] = self.filename
-                dg['pingInfo']['dgtime'] = dg['header']['dgtime']
-                dg['pingInfo']['dgdatetime'] = dg['header']['dgdatetime']
-                pingInfo.append(dg['pingInfo'])
-                intervalstarttime = index
-
+            dg = self.read_EMdgmMRZ()
+            dg['pingInfo']['File'] = self.filename
+            dg['pingInfo']['dgtime'] = dg['header']['dgtime']
+            dg['pingInfo']['dgdatetime'] = dg['header']['dgdatetime']
+            pingInfo.append(dg['pingInfo'])
 
         pingInfod = self.listofdicts2dictoflists(pingInfo)
         pingInfodf = pd.DataFrame(pingInfod)
@@ -4450,9 +4449,12 @@ class kmall():
         else:
             None
 
-    def extractNadirDepth(self):
+    def extractNadirDepth(self, interval=None):
         '''Extracts timestamp, latitude, longitude and nadir depth for each
         ping as a Pandas DataFrame.
+
+        If <interval> is given, pings are decimated to the first in each
+        <interval>-second time bin (see decimateByInterval()).
 
         The nadir sounding is taken to be the one with the smallest
         across-track offset (y_reRefPoint_m) from the vessel reference
@@ -4463,6 +4465,7 @@ class kmall():
             self.index_file()
 
         MRZdgs = self.Index[self.Index['MessageType'] == "b'#MRZ'"]
+        MRZdgs = self.decimateByInterval(MRZdgs, interval)
 
         nadirData = []
         for index, row in MRZdgs.iterrows():
@@ -4806,7 +4809,7 @@ def process_one_file(filename, args, idx, nfiles):
                                   '_' + os.path.basename(K.filename[:-6]) + '.csv'))
 
             if extractnadirdepth:
-                nadirData = K.extractNadirDepth()
+                nadirData = K.extractNadirDepth(interval=extractpinginfo_ii)
                 if nadirData is not None:
                     nadirData.to_csv(os.path.join(outputdirectory,
                                      'NADIR_' + os.path.basename(K.filename[:-6]) + '.csv'),
@@ -4855,11 +4858,13 @@ def main(args=None):
     parser.add_argument('-i', action='store_true', dest='extractpinginfo',
                         default=False, help=("Extract all pinginfo records from a file to stdout."))
     parser.add_argument("-ii", action="store", dest="extractpinginfo_ii", type=float,
-                        default=None, help="-ii <interval> Extracts pinginfo at <interval> seconds.")
+                        default=None, help=("-ii <interval> Extracts pinginfo decimated to the first ping in each "
+                              "<interval>-second time bin. Also decimates -n output. Timestamps "
+                              "are not altered."))
     parser.add_argument('-n', action='store_true', dest='extractnadirdepth',
                         default=False, help=("Write timestamp (ISO8601 and Unix epoch), latitude, longitude "
                                              "and nadir depth for each ping to a NADIR_<filename>.csv file, "
-                                             "for a file or directory of files."))
+                                             "for a file or directory of files. Use -ii to decimate."))
     parser.add_argument('-o', action='store', dest='outputdirectory',
                         default=None, help=("-o <directory> Write extracted pinginfo, runtime parameter, "
                                             "sensor position and nadir depth files to <directory>. The directory "
