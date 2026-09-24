@@ -4772,9 +4772,20 @@ def process_one_file(filename, args, idx, nfiles):
                 # are not always linear, so this is a good approximation of the total.
 
                 if pinginfo is not None:
+                    lat = np.asarray(pinginfo['latitude_deg'], dtype=float)
+                    lon = np.asarray(pinginfo['longitude_deg'], dtype=float)
 
-                    latmean = np.mean(pinginfo['latitude_deg'])
-                    lonmean = np.mean(pinginfo['longitude_deg'])
+                    # Remove 0,0 positions, which are sometimes present, before
+                    # computing the mean position so they don't skew it and
+                    # cause the wrong UTM zone or hemisphere to be chosen.
+                    valid = ~((lat == 0) & (lon == 0))
+                    lat = lat[valid]
+                    lon = lon[valid]
+
+                if pinginfo is not None and len(lat) > 0:
+
+                    latmean = np.mean(lat)
+                    lonmean = np.mean(lon)
                     utmzone = int((lonmean + 180) / 6) + 1
 
                     if latmean < 0:
@@ -4782,13 +4793,8 @@ def process_one_file(filename, args, idx, nfiles):
                     else:
                         proj_utm = Proj(proj='utm', zone=utmzone, ellps='WGS84', south=False)
 
-                    easting, northing = proj_utm(pinginfo['longitude_deg'],
-                                                 pinginfo['latitude_deg'])
+                    easting, northing = proj_utm(lon, lat)
 
-                    # Remove zero values, which are often present.
-                    nonzero = (easting != 0) & (northing != 0)
-                    easting = easting[nonzero]
-                    northing = northing[nonzero]
                     # Remove outliers that are more than 100m away from the previous point.
                     dxm = np.diff(easting)
                     dym = np.diff(northing)
