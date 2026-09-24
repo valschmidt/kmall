@@ -4,8 +4,8 @@ with open("Readme.md", encoding="utf-8") as f:
     long_description = f.read()
 
 setup(
-    name = "kmall",
-    version = "1.1.0",
+    name = "pykmall",
+    version = "1.1.1",
     license_expression = "BSD-2-Clause",
     packages = find_packages(),
     python_requires=">=3.8",
