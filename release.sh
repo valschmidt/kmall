@@ -167,6 +167,13 @@ if [[ "$repository" == pypi ]] && git rev-parse -q --verify "refs/tags/$TAG" >/d
     fail "tag $TAG already exists; bump the version in setup.py first"
 fi
 
+# The upload must be confirmed at a prompt, which needs a terminal to read
+# from. Without one the answer would be empty and read as "no", so stop
+# now rather than after the build.
+if [[ "$skip_upload" -eq 0 && ! -t 0 ]]; then
+    fail "no terminal to confirm the upload from; run this from a terminal"
+fi
+
 # --- Build and upload ------------------------------------------------------
 
 if [[ "$skip_upload" -eq 0 ]]; then
