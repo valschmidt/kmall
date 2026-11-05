@@ -1070,10 +1070,11 @@ class kmall():
 
         dg = {}
 
-        # The "detectedRangeInSamplesHighResolution" field is present in my dgmVersion==2
-        # data.  Given it wasn't implemented in the upstream library, wonder if
-        # it wasn't present in dgmVersion==1?
-        format_to_unpack = "1f4H1f"
+        # The "detectedRangeInSamplesHighResolution" field was added in dgmVersion 1 (REV G).
+        if self.dgmVersion == 0:
+            format_to_unpack = "1f4H"
+        else:
+            format_to_unpack = "1f4H1f"
         fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
 
         dg['beamPointAngReVertical_deg'] = fields[0]
@@ -1091,7 +1092,9 @@ class kmall():
         # distance from tx to bottom detection
         # [meters] = soundVelocity_mPerSec * detectedRangeInSamples / (sampleFreq_Hz * 2)
         # The detected range is set to zero when the beam has no bottom detection.
-        dg['detectedRangeInSamplesHighResolution'] = fields[5]
+        # Not present in dgmVersion 0.
+        if self.dgmVersion != 0:
+            dg['detectedRangeInSamplesHighResolution'] = fields[5]
 
         # Pointer to start of array with Water Column data. Length of array = numSampleData.
         # Sample amplitudes in 0.5 dB resolution. Size of array is numSampleData * int8_t.
@@ -3261,6 +3264,17 @@ class kmall():
             print("Opening: %s to read" % filetoopen)
 
         self.FID = open(filetoopen, "rb")
+
+    def OpenBytestoRead(self, data):
+        """
+        Read KMALL datagrams from an in-memory buffer (e.g. a datagram received over UDP)
+        instead of a file. All read_* methods, decode_datagram() and read_datagram()
+        then operate on the buffer.
+        :param data: bytes-like object containing one or more complete datagrams.
+        """
+        self.FID = io.BytesIO(data)
+        self.file_size = len(data)
+        self.eof = False
 
     def OpenFiletoWrite(self, inputfilename=None):
         """ Open a KMALL data file for reading."""
