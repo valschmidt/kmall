@@ -4239,12 +4239,15 @@ class kmall():
                              'SYSTEM:': 'system_description', 'EMXI:SWLZ=': 'waterline_vertical_location'}
         translate_versions = {'CPU:': 'cpu_software_version', 'VXW:': 'vxw_software_version',
                               'FILTER:': 'filter_software_version', 'CBMF:': 'cbmf_software_version',
-                              'TX:': 'tx_software_version', 'RX:': 'rx_software_version'}
+                              'TX:': 'tx_software_version', 'RX:': 'rx_software_version',
+                              'TX_V2:': 'tx_v2_software_version', 'RX_V2:': 'rx_v2_software_version'}
         translate_serial = {'TX:': 'tx_serial_number', 'RX:': 'rx_serial_number'}
         # device translator will use the device identifier plus the values here, ex: 'TRAI_HD1' + '_serial_number'
         translate_device_ident = {'ATTI_1': 'motion_sensor_1', 'ATTI_2': 'motion_sensor_2', 'ATTI_3': 'motion_sensor_3',
                                   'POSI_1': 'position_1', 'POSI_2': 'position_2', 'POSI_3': 'position_3',
-                                  'CLCK': 'clock', 'SVPI': 'sound_velocity_1', 'TRAI_HD1': 'transducer_1'}
+                                  'CLCK': 'clock', 'SVPI': 'sound_velocity_1', 'TRAI_HD1': 'transducer_1',
+                                  'TRAI_TX1': 'tx_transducer_1', 'TRAI_RX1': 'rx_transducer_1',
+                                  'TRAI_TX2': 'tx_transducer_2', 'TRAI_RX2': 'rx_transducer_2'}
         translate_device = {'N=': '_serial_number', 'X=': '_along_location', 'Y=': '_athwart_location',
                             'Z=': '_vertical_location', 'R=': '_roll_angle', 'P=': '_pitch_angle',
                             'H=': '_heading_angle', 'S=': '_sounder_size_deg',
@@ -4268,19 +4271,28 @@ class kmall():
         translated = {}
         translate = translate_install
         for rec in records_flatten:
+            # In the serial number block a value can itself contain ';' (ex: 'TX:102;0.7deg'), so rejoin it.
+            if len(rec) > 1 and translate is translate_serial:
+                rec = [';'.join(rec)]
             # subgroups are parsed here, first rec contains the prefix
             # ex: ['ATTI_1:X=0.000', 'Y=0.000', 'Z=0.000', 'R=0.000', 'P=0.000', 'H=0.000', 'D=0.000'...
             if len(rec) > 1:
-                prefix, first_rec = rec[0].split(':')
-                try:
-                    prefix = translate_device_ident[prefix]  # if its a prefix we haven't seen before, just pass it through
-                except:
-                    pass
-                ky, data = first_rec.split('=')
-                translated[prefix + translate_device[ky + '=']] = data
-                for subrec in rec[1:]:
-                    ky, data = subrec.split('=')
-                    translated[prefix + translate_device[ky + '=']] = data
+                if ':' in rec[0]:
+                    prefix, first_rec = rec[0].split(':', 1)
+                    prefix = translate_device_ident.get(prefix, prefix)  # unknown prefixes are passed through
+                    subrecs = [first_rec] + rec[1:]
+                elif 'S=CLK' in rec:
+                    # Newer installation text gives the clock without a 'CLCK:' prefix
+                    # ex: ['S=CLK', 'A=On rising edge', 'I=Serial port 1', 'Q=OK']
+                    prefix = translate_device_ident['CLCK']
+                    subrecs = [r for r in rec if r != 'S=CLK']
+                else:
+                    print('Unable to parse {}'.format(rec))
+                    continue
+                for subrec in subrecs:
+                    ky, data = subrec.split('=', 1)
+                    # keys not in the translator (ex: 'IX=' in newer receiver records) are passed through
+                    translated[prefix + translate_device.get(ky + '=', '_' + ky.lower())] = data
             # regular groups parsed here, use the headers to determine which translator to use
             # ex:  ['CBMF:1.11 18.02.20 ']
             else:
