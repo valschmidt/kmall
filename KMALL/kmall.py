@@ -1100,10 +1100,8 @@ class kmall():
         # Sample amplitudes in 0.5 dB resolution. Size of array is numSampleData * int8_t.
         # Amplitude array is followed by phase information if phaseFlag >0.
         # Use (numSampleData * int8_t) to jump to next beam, or to start of phase info for this beam, if phase flag > 0.
-        format_to_unpack = str(dg['numSampleData']) + "b"
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
-
-        dg['sampleAmplitude05dB_p'] = fields
+        # Read as a numpy array (int8): unpacking each sample into a Python int is slow for water column data.
+        dg['sampleAmplitude05dB_p'] = np.frombuffer(self.FID.read(dg['numSampleData']), dtype=np.int8)
 
         '''
         if self.verbose > 2:
@@ -1124,11 +1122,8 @@ class kmall():
         # print("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase1.")
 
         dg = {}
-        format_to_unpack = str(numSampleData) + "b"
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
-
-        # Rx beam phase in 180/128 degree resolution.
-        dg['rxBeamPhase'] = fields
+        # Rx beam phase in 180/128 degree resolution (numpy int8 array).
+        dg['rxBeamPhase'] = np.frombuffer(self.FID.read(numSampleData), dtype=np.int8)
 
         return dg
 
@@ -1144,11 +1139,8 @@ class kmall():
         # print("WARNING: You are using an incomplete, untested function: read_EMdgmMWCrxBeamPhase2.")
 
         dg = {}
-        format_to_unpack = str(numSampleData) + "h"
-        fields = struct.unpack(format_to_unpack, self.FID.read(struct.Struct(format_to_unpack).size))
-
-        # Rx beam phase in 0.01 degree resolution.
-        dg['rxBeamPhase'] = fields
+        # Rx beam phase in 0.01 degree resolution (numpy int16 array, little-endian as in the file).
+        dg['rxBeamPhase'] = np.frombuffer(self.FID.read(2 * numSampleData), dtype='<i2')
 
         return dg
 
